@@ -38,7 +38,6 @@ from numba import njit
 from matplotlib import patches
 
 from ..metrics import Metric
-from ..utils import times_to_indices
 
 # Ignore all warnings related to empty slices or dividing by zero
 warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -682,44 +681,40 @@ class WindowRMS(BaseWindowRMSMetric):
         return super().describe(metric_value, line_width=line_width)
 
     def get_values(self, gather):
-        return self.numba_get_values(gather.data, gather.samples, gather.offsets, self.times, self.offsets,
-                                     self._get_time_ixs, self.compute_stats_by_ixs)
+        kwargs = {"traces": gather.data, "samples": gather.samples, "delay": gather.delay,
+                  "sample_interval": gather.sample_interval, "gather_offsets": gather.offsets, "times": self.times,
+                  "metric_offsets": self.offsets, "compute_stats_by_ixs": self.compute_stats_by_ixs}
+        return self.numba_get_values(**kwargs)
 
     @staticmethod
     @njit(nogil=True)
-    def _get_time_ixs(times, gather_samples):
-        """Convert times into indices using samples from provided gather."""
-        times = np.asarray([max(gather_samples[0], times[0]), min(gather_samples[-1], times[1])])
-        time_ixs = times_to_indices(times, gather_samples, round=True).astype(np.int16)
+    def numba_get_values(traces, samples, delay, sample_interval, gather_offsets, times, metric_offsets,
+                         compute_stats_by_ixs):
+        times = np.asarray([max(samples[0], times[0]), min(samples[-1], times[1])])
+        time_ixs = np.rint((times - delay) / sample_interval).astype(np.int16)
         # Include the next index to mimic the behavior of conventional software
         time_ixs[1] += 1
-        return time_ixs
 
-    @staticmethod
-    @njit(nogil=True)
-    def numba_get_values(traces, gather_samples, gather_offsets, times, offsets, _get_time_ixs,
-                       compute_stats_by_ixs):
-        time_ixs = _get_time_ixs(times, gather_samples)
-
-        window_ixs = (gather_offsets >= offsets[0]) & (gather_offsets <= offsets[1])
+        window_ixs = (gather_offsets >= metric_offsets[0]) & (gather_offsets <= metric_offsets[1])
         start_ixs = np.full(sum(window_ixs), fill_value=time_ixs[0], dtype=np.int16)
         end_ixs = np.full(sum(window_ixs), fill_value=time_ixs[1], dtype=np.int16)
         squares = np.zeros_like(traces[:, 0])
         nums = np.zeros_like(traces[:, 0])
-        window_squares, window_nums = compute_stats_by_ixs(traces[window_ixs], start_ixs, end_ixs)
+        window_squares, window_nums = compute_stats_by_ixs(traces[window_ixs], start_ixs=start_ixs, end_ixs=end_ixs)
         squares[window_ixs] = window_squares
         nums[window_ixs] = window_nums
         return squares, nums
 
     def add_window_on_plot(self, ax, gather, color="lime", legend=None):
         """Plot a rectangle path over the gather plot in a place where RMS was computed."""
-        times = self._get_time_ixs(self.times, gather.samples)
+        times_ixs = np.rint(np.clip((self.times - gather.delay) / gather.sample_interval, 0, len(gather.samples)))
+        # Include the next index to mimic the behavior of conventional software
+        times_ixs[1] += 1
 
         offs_ind = np.nonzero((gather.offsets >= self.offsets[0]) & (gather.offsets <= self.offsets[1]))[0]
         if len(offs_ind) > 0:
-            n_rec = (offs_ind[0], times[0]), len(offs_ind), (times[1] - times[0])
-            ax.add_patch(patches.Rectangle(*n_rec, linewidth=2, color=color, facecolor='none', label=legend,
-                                           alpha=0.5))
+            n_rec = (offs_ind[0], times_ixs[0]), len(offs_ind), (times_ixs[1] - times_ixs[0])
+            ax.add_patch(patches.Rectangle(*n_rec, linewidth=2, color=color, label=legend, alpha=0.5))
 
 
 class AdaptiveWindowRMS(BaseWindowRMSMetric):
@@ -778,34 +773,40 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
 
     def get_values(self, gather):
         fbp_times = self.refractor_velocity(gather.offsets)
-        return self.numba_get_values(gather.data, self._get_indices, self.compute_stats_by_ixs,
-                                     window_size=self.window_size, shift=self.shift, samples=gather.samples,
-                                     fbp_times=fbp_times, times_to_indices=times_to_indices)
+        kwargs = {"traces": gather.data, "window_size": self.window_size, "shift": self.shift,
+                  "samples": gather.samples, "delay": gather.delay, "sample_interval": gather.sample_interval,
+                  "fbp_times": fbp_times, "_get_indices": self._get_indices,
+                  "compute_stats_by_ixs": self.compute_stats_by_ixs}
+        return self.numba_get_values(**kwargs)
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_values(traces, _get_indices, compute_stats_by_ixs, window_size, shift, samples, fbp_times,
-                       times_to_indices):  # pylint: disable=redefined-outer-name
-        start_ixs, end_ixs = _get_indices(window_size, shift, samples, fbp_times, times_to_indices)
-        return compute_stats_by_ixs(traces, start_ixs, end_ixs)
+    # pylint: disable-next=redefined-outer-name
+    def numba_get_values(traces, window_size, shift, samples, delay, sample_interval, fbp_times, _get_indices,
+                         compute_stats_by_ixs):
+        start_ixs, end_ixs = _get_indices(window_size=window_size, shift=shift, samples=samples, delay=delay,
+                                          sample_interval=sample_interval, fbp_times=fbp_times)
+        return compute_stats_by_ixs(traces, start_ixs=start_ixs, end_ixs=end_ixs)
 
     @staticmethod
     @njit(nogil=True)
-    def _get_indices(window_size, shift, samples, fbp_times, times_to_indices):  # pylint: disable=redefined-outer-name
+    # pylint: disable-next=redefined-outer-name
+    def _get_indices(window_size, shift, samples, delay, sample_interval, fbp_times):
         """Calculates the start and end indices of a window of size `window_size` centered around the refractor
         velocity shifted by `shift`."""
         mid_times = fbp_times + shift
         start_times = np.clip(mid_times - (window_size - window_size // 2), 0, samples[-1])
         end_times = np.clip(mid_times + (window_size // 2), 0, samples[-1])
 
-        start_ixs = times_to_indices(start_times, samples, round=True).astype(np.int32)
-        end_ixs = times_to_indices(end_times, samples, round=True).astype(np.int32)
+        start_ixs = np.rint((start_times - delay) / sample_interval).astype(np.int32)
+        end_ixs = np.rint((end_times - delay) / sample_interval).astype(np.int32)
         return start_ixs, end_ixs
 
     def add_window_on_plot(self, ax, gather, color="lime", legend=None):
         """Plot two parallel lines over the gather plot along the window where RMS was computed."""
         fbp_times = self.refractor_velocity(gather.offsets)
-        indices = self._get_indices(self.window_size, self.shift, gather.samples, fbp_times, times_to_indices)
+        indices = self._get_indices(window_size=self.window_size, shift=self.shift, samples=gather.samples,
+                                    delay=gather.delay, sample_interval=gather.sample_interval, fbp_times=fbp_times)
         indices = np.where(indices[0] == indices[1], np.nan, indices)
         ax.fill_between(np.arange(gather.n_traces), indices[0], indices[1], color=color, label=legend, alpha=0.5)
 
