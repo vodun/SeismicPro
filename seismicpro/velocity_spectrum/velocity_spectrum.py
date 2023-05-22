@@ -220,7 +220,9 @@ class BaseVelocitySpectrum(SamplesContainer):
         ax.set_title(**{"label": None, **title})
 
         if stacking_velocity_ix is not None:
-            ax.plot(*stacking_velocity_ix, c='#fafcc2', linewidth=2.5, marker="o", markevery=slice(1, -1))
+            stacking_times_ix, stacking_velocities_ix = stacking_velocity_ix
+            ax.plot(stacking_velocities_ix, stacking_times_ix, c='#fafcc2', linewidth=2.5,
+                    marker="o", markevery=slice(1, -1))
         if velocity_bounds_ix is not None:
             ax.fill_betweenx(*velocity_bounds_ix, color="white", alpha=0.2)
         if grid:
@@ -775,7 +777,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         if acceptable_margin is not None:
             bounds = [-acceptable_margin, acceptable_margin]
             left_ix, right_ix = np.interp(bounds, self.margins, np.arange(self.n_margins))
-            velocity_bounds_ix = ([self.times[0], self.times[-1]], left_ix, right_ix)
+            velocity_bounds_ix = ([0, self.n_times - 1], left_ix, right_ix)
 
         super()._plot(title=title, x_label="Relative velocity margin, %", x_ticklabels=self.margins * 100,
                       x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax, grid=grid,
