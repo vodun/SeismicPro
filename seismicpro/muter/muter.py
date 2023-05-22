@@ -124,22 +124,3 @@ class Muter(VFUNC):
         time_deltas[0] = times[0] + delay
         time_deltas[1:] = offsets_diff / muting_velocities
         return cls(offsets, np.cumsum(time_deltas), coords=refractor_velocity.coords)
-
-    @classmethod
-    def from_stacking_velocity(cls, stacking_velocity, max_stretch_factor=0.65):
-        """ Create a muter from a stacking velocity that is supposed to attenuate
-        the effect of waveform stretching after the nmo correction.
-
-        Parameters
-        ----------
-        max_stretch_factor : float, defaults to 0.65
-            Maximum allowed stretch factor.
-
-        Returns
-        -------
-        self : Muter
-            Created muter.
-        """
-        velocities_ms = stacking_velocity.velocities / 1000 # from m/s to m/ms
-        stretch_offsets = velocities_ms * stacking_velocity.times * np.sqrt((1 + max_stretch_factor) ** 2 - 1)
-        return cls(stretch_offsets, stacking_velocity.times, coords=stacking_velocity.coords)
