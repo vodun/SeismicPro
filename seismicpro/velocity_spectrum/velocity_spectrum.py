@@ -74,10 +74,19 @@ class BaseVelocitySpectrum:
         if self.coherency_func is None:
             raise ValueError(f"Unknown mode {mode}, available modes are {COHERENCY_FUNCS.keys()}")
 
+        self._times = None
+
     @property
     def times(self):
         """np.ndarray of floats: Recording time for each trace value. Measured in milliseconds."""
-        return self.gather.times  # ms
+        if self._times is not None:
+            return self._times
+        else:
+            return self.gather.times  # ms
+
+    @times.setter
+    def times(self, values):
+        self._times = values
 
     @property
     def sample_interval(self):
@@ -204,7 +213,7 @@ class BaseVelocitySpectrum:
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
 
         cmap = plt.get_cmap('seismic')
-        level_values = np.linspace(0, np.quantile(self.velocity_spectrum, clip_threshold_quantile), n_levels)
+        level_values = np.linspace(0, np.nanquantile(self.velocity_spectrum, clip_threshold_quantile), n_levels)
         norm = mcolors.BoundaryNorm(level_values, cmap.N, clip=True)
         img = ax.imshow(self.velocity_spectrum, norm=norm, aspect='auto', cmap=cmap)
         add_colorbar(ax, img, colorbar, y_ticker=y_ticker)
@@ -739,12 +748,12 @@ class SlantStack(VerticalVelocitySpectrum):
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_rate,
+    def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_interval,
                                        half_win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf, out=None):
         t_win_size_min_ix = max(0, t_min_ix - half_win_size_samples)
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + half_win_size_samples)
 
-        corrected_gather_data = apply_lmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1], offsets, velocity, sample_rate)
+        corrected_gather_data = apply_lmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1], offsets, velocity, sample_interval)
 
         numerator, denominator = coherency_func(corrected_gather_data)
 
@@ -766,6 +775,150 @@ class SlantStack(VerticalVelocitySpectrum):
         return SlantStackPlot(self, *args, **kwargs).plot()
 
 
+class EmptySpectrum(VerticalVelocitySpectrum):
+
+    def __init__(self, gather, velocities, f, spectrum):
+        self.gather = gather
+        self.velocity_spectrum = spectrum
+        self.velocities = velocities
+        self.half_win_size_samples = 1
+        self.max_stretch_factor = 1
+        self.coherency_func = COHERENCY_FUNCS.get('NE')
+        self._times = f
+
+    def _plot(self, *args, **kwargs):
+        """Plot vertical velocity spectrum."""
+        super()._plot(*args, **kwargs)
+
+
+from numba import njit, prange
+@njit(nogil=True, parallel=True)
+def ps(velocities, frequencies, offsets, fft):
+    power = np.empty((len(velocities), len(frequencies)), dtype=np.float32)
+    dx = offsets[1:] - offsets[:-1]
+    #for row, vel in enumerate(velocities):
+    for row in prange(len(velocities)):
+        vel = velocities[row]
+        exponent = 1j * 2*np.pi/vel * offsets
+        for col in range(len(frequencies)):
+            frq = frequencies[col]
+            f_index = col
+            shift = np.exp(exponent*frq)
+            inner = shift*fft[:, f_index]/np.abs(fft[:, f_index])
+            #inner = np.where(np.abs(fft[:, f_index]), shift*fft[:, f_index]/np.abs(fft[:, f_index]), 0)
+            power[row, col] = np.abs(np.sum(0.5*dx*(inner[:-1] + inner[1:])))
+
+    return power
+
+
+class PhaseShist(EmptySpectrum):
+    def __init__(self, gather, velocities, fmax=None):
+        N = gather.n_samples
+        A = np.fft.fft(gather.data)[:, :N // 2]
+        f = np.fft.fftfreq(gather.n_samples, gather.sample_interval / 1000)[:N // 2]
+
+        fmax = fmax or f.max()
+        #A = A[:, f < fmax]
+        f = f[f < fmax]
+        power = ps(velocities, f, gather.offsets, A)
+
+        power_max = np.nanmax(power, axis=1, keepdims=True)
+        power = np.where(power_max != 0, power / power_max, 0)
+    
+        super().__init__(gather, velocities, f, power.T)
+    
+ 
+def _spatiospectral_correlation_matrix(tmatrix, frq_ids=None, weighting=None):
+    # TODO (jpv): Rewrite docstring.
+    nchannels, samples_per_block, nblocks = tmatrix.shape
+
+    # Perform FFT
+    transform = np.fft.fft(tmatrix, axis=1)
+    print('fft')
+
+    # Trim FFT
+    if frq_ids is not None:
+        transform = transform[:, frq_ids, :]
+
+    # Define weighting matrix
+    if weighting == "invamp":
+        _, nfrqs, _ = transform.shape
+        weighting = 1/np.abs(np.mean(transform, axis=-1))
+
+        for i in range(nfrqs):
+            w = weighting[:, i]
+            for b in range(nblocks):
+                transform[:, i, b] *= w
+
+    # Calculate spatiospectral correlation matrix
+    nchannels, nfrqs, nblocks = transform.shape
+    spatiospectral = np.empty((nchannels, nchannels, nfrqs), dtype=complex)
+    scm = np.zeros((nchannels, nchannels), dtype=complex)
+    tslice = np.zeros((nchannels, 1), dtype=complex)
+    tslice_h = np.zeros((1, nchannels), dtype=complex)
+    for i in range(nfrqs):
+        scm[:, :] = 0
+        for j in range(nblocks):
+            tslice[:, 0] = transform[:, i, j]
+            tslice_h[0, :] = np.conjugate(tslice)[:, 0]
+            scm += np.dot(tslice, tslice_h)
+        scm /= nblocks
+        spatiospectral[:, :, i] = scm[:]
+
+    return spatiospectral
+
+from tqdm import tqdm
+from scipy import special
+class BeamFormer(EmptySpectrum):
+    def __init__(self, gather, velocities, fmax=None, weighting='sqrt', steering="cylindrical"):
+        tmatrix = gather.data.reshape(gather.n_traces, gather.n_samples, 1)
+        offsets = gather.offsets
+        # Calculate the spatiospectral correlation matrix
+
+        frequencies = np.fft.fftfreq(gather.n_samples, gather.sample_interval / 1000)#[:N // 2]
+        fmax = fmax or frequencies.max()
+        mask = (0 < frequencies) & (frequencies < fmax)
+        print('START COMPUTE SSCM')
+        sscm = _spatiospectral_correlation_matrix(tmatrix, frq_ids=mask, weighting=weighting)
+        print('COMPUTED SSCM')
+        frequencies = frequencies[mask]
+
+        # Weighting
+        if weighting == "sqrt":
+            offsets_n = offsets.reshape(gather.n_traces, 1)
+            offsets_h = np.transpose(np.conjugate(offsets_n))
+            w = np.dot(offsets_n, offsets_h)
+        else:
+            w = np.ones((gather.n_traces, gather.n_traces))
+
+        # Steering
+        if steering == "cylindrical":
+            def create_steering(kx):
+                return np.exp(-1j * np.angle(special.j0(kx) + 1j*special.y0(kx)))
+        else:
+            def create_steering(kx):
+                return np.exp(-1j * kx)
+
+        steer = np.empty((gather.n_traces, 1), dtype=complex)
+        power = np.empty((len(velocities), len(frequencies)), dtype=complex)
+        kx = np.empty_like(offsets)
+        for i, f in tqdm(enumerate(frequencies)):
+            weighted_sscm = sscm[:, :, i]*w
+            for j, v in enumerate(velocities):
+                kx[:] = 2*np.pi*f/v * offsets[:]
+                steer[:, 0] = create_steering(kx)[:]
+                res = np.dot(np.transpose(np.conjugate(steer)), weighted_sscm)
+                # print(np.isnan(res))
+                _power = np.dot(res, steer)
+                power[j, i] = _power
+
+        power = np.abs(power)
+        power_max = np.nanmax(power, axis=1, keepdims=True)
+        power = np.where(power_max != 0, power / power_max, 0)
+
+        super().__init__(gather, velocities, frequencies, power.T)
+
+
 @njit(nogil=True, parallel=True)
 def compute_linear_hodograph_times(offsets, times, velocities):
     velocities = np.ascontiguousarray(np.broadcast_to(velocities, times.shape))
@@ -773,11 +926,11 @@ def compute_linear_hodograph_times(offsets, times, velocities):
 
 from ..gather.utils.correction import get_hodograph
 @njit(nogil=True, parallel=True)
-def apply_lmo(gather_data, times, offsets, stacking_velocities, sample_rate, fill_value=np.nan):
+def apply_lmo(gather_data, times, offsets, stacking_velocities, sample_interval, fill_value=np.nan):
     corrected_gather_data = np.full_like(gather_data, fill_value=fill_value)
     hodograph_times = compute_linear_hodograph_times(offsets, times, stacking_velocities)
     for i in prange(times.shape[0]):
-        get_hodograph(gather_data, offsets, hodograph_times[i], sample_rate, fill_value=fill_value, out=corrected_gather_data[:, i])
+        get_hodograph(gather_data, offsets, hodograph_times[i], sample_interval, fill_value=fill_value, out=corrected_gather_data[:, i])
     return corrected_gather_data
 
 
