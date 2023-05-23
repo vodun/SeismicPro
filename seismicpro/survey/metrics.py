@@ -681,23 +681,22 @@ class WindowRMS(BaseWindowRMSMetric):
         return super().describe(metric_value, line_width=line_width)
 
     def get_values(self, gather):
-        kwargs = {"traces": gather.data, "samples": gather.samples, "delay": gather.delay,
-                  "sample_interval": gather.sample_interval, "gather_offsets": gather.offsets, "times": self.times,
-                  "metric_offsets": self.offsets, "compute_stats_by_ixs": self.compute_stats_by_ixs}
-        return self.numba_get_values(**kwargs)
+        times_ixs = self._get_time_ixs(gather)
+        return self.numba_get_values(traces=gather.data, times_ixs=times_ixs, gather_offsets=gather.offsets,
+                                     metric_offsets=self.offsets, compute_stats_by_ixs=self.compute_stats_by_ixs)
+
+    def _get_time_ixs(self, gather):
+        times_ixs = np.clip(gather.times_to_indices(self.times, round=True), 0, len(gather.samples)-1)
+        # Include the next index to mimic the behavior of conventional software
+        times_ixs[1] += 1
+        return times_ixs
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_values(traces, samples, delay, sample_interval, gather_offsets, times, metric_offsets,
-                         compute_stats_by_ixs):
-        times = np.asarray([max(samples[0], times[0]), min(samples[-1], times[1])])
-        time_ixs = np.rint((times - delay) / sample_interval).astype(np.int16)
-        # Include the next index to mimic the behavior of conventional software
-        time_ixs[1] += 1
-
+    def numba_get_values(traces, times_ixs, gather_offsets, metric_offsets, compute_stats_by_ixs):
         window_ixs = (gather_offsets >= metric_offsets[0]) & (gather_offsets <= metric_offsets[1])
-        start_ixs = np.full(sum(window_ixs), fill_value=time_ixs[0], dtype=np.int16)
-        end_ixs = np.full(sum(window_ixs), fill_value=time_ixs[1], dtype=np.int16)
+        start_ixs = np.full(sum(window_ixs), fill_value=times_ixs[0], dtype=np.int16)
+        end_ixs = np.full(sum(window_ixs), fill_value=times_ixs[1], dtype=np.int16)
         squares = np.zeros_like(traces[:, 0])
         nums = np.zeros_like(traces[:, 0])
         window_squares, window_nums = compute_stats_by_ixs(traces[window_ixs], start_ixs=start_ixs, end_ixs=end_ixs)
@@ -707,10 +706,7 @@ class WindowRMS(BaseWindowRMSMetric):
 
     def add_window_on_plot(self, ax, gather, color="lime", legend=None):
         """Plot a rectangle path over the gather plot in a place where RMS was computed."""
-        times_ixs = np.rint(np.clip((self.times - gather.delay) / gather.sample_interval, 0, len(gather.samples)))
-        # Include the next index to mimic the behavior of conventional software
-        times_ixs[1] += 1
-
+        times_ixs = self._get_time_ixs(gather)
         offs_ind = np.nonzero((gather.offsets >= self.offsets[0]) & (gather.offsets <= self.offsets[1]))[0]
         if len(offs_ind) > 0:
             n_rec = (offs_ind[0], times_ixs[0]), len(offs_ind), (times_ixs[1] - times_ixs[0])
