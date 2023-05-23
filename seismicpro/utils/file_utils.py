@@ -101,7 +101,7 @@ def load_dataframe(path, columns=None, has_header=False, usecols=None, format="f
             row = [next(f) for _ in range(n_skip)][-1]
         # If decimal is not provided, try inferring it from the file
         if decimal is None:
-            decimal = '.' if '.' in row else ','
+            decimal = '.' if '.' in row or format == 'csv' else ','
         if usecols is not None:
             usecols_sep = sep if format == "csv" else None
             # Avoid negative values in `usecols`
@@ -112,13 +112,16 @@ def load_dataframe(path, columns=None, has_header=False, usecols=None, format="f
 
     if format == "fwf":
         header = 0 if has_header else None
-        return pd.read_csv(path, sep=r'\s+', header=header, names=columns, usecols=usecols, decimal=decimal,
+        names, usecols = (None, columns) if has_header and usecols is None else (columns, usecols)
+        return pd.read_csv(path, sep=r'\s+', header=header, names=names, usecols=usecols, decimal=decimal,
                            skiprows=skiprows, encoding=encoding, **kwargs)
     if format == "csv":
         if decimal != ".":
             # FIXME: Add decimal support when the issue (https://github.com/pola-rs/polars/issues/6698) is solved
             raise ValueError("`decimal` differ from '.' is not supported for 'csv' format")
-        columns, new_columns = (columns, None) if has_header else (usecols, columns)
+        # To mimic pandas reader that may receive column names to load via `usecols` instead of `columns`.
+        new_columns = None if has_header else columns
+        columns = usecols if not has_header or columns is None else columns
         return pl.read_csv(path, has_header=has_header, columns=columns, new_columns=new_columns, separator=sep,
                            skip_rows=skiprows, encoding=encoding, **kwargs).to_pandas()
     raise ValueError(f"Unknown format `{format}`, available formats are ('fwf', 'csv')")
