@@ -119,7 +119,6 @@ def load_dataframe(path, columns=None, has_header=False, usecols=None, format="f
         if decimal != ".":
             # FIXME: Add decimal support when the issue (https://github.com/pola-rs/polars/issues/6698) is solved
             raise ValueError("`decimal` differ from '.' is not supported for 'csv' format")
-        # To mimic pandas reader that may receive column names to load via `usecols` instead of `columns`.
         new_columns = None if has_header else columns
         columns = usecols if not has_header or columns is None else columns
         return pl.read_csv(path, has_header=has_header, columns=columns, new_columns=new_columns, separator=sep,
