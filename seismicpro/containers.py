@@ -317,7 +317,7 @@ class TraceContainer:
         -----------
         path : str
             A path to the file with headers.
-         has_header : bool, optional, defaults to False
+        has_header : bool, optional, defaults to False
             Indicate if the first row of the file contains header names or not.
         headers_names : array-like of str, optional, defaults to None
             An array with column names to use as trace header names. If `has_header` is `True`, then `headers_names`
@@ -364,7 +364,7 @@ class TraceContainer:
         """
         self = maybe_copy(self, inplace, ignore="headers") # pylint: disable=self-cls-assignment
 
-        loaded_headers = load_dataframe(path, has_header=has_header, columns=headers_names, usecols=usecols,
+        loaded_headers = load_dataframe(path=path, has_header=has_header, columns=headers_names, usecols=usecols,
                                         skiprows=skiprows, format=format, sep=sep, decimal=decimal,
                                         encoding=encoding, **kwargs)
         loaded_headers = pl.from_pandas(loaded_headers, nan_to_null=False)
