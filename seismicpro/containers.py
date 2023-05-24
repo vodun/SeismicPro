@@ -309,19 +309,19 @@ class TraceContainer:
 
     @batch_method(target="for")
     # pylint: disable-next=too-many-arguments
-    def load_headers(self, path, headers_names=None, has_header=False, usecols=None, join_on=None, how="inner",
-                     format="fwf", sep=',', skiprows=0, decimal=None, encoding="UTF-8", inplace=False, **kwargs):
+    def load_headers(self, path, has_header=False, headers_names=None, usecols=None, join_on=None, how="inner",
+                     skiprows=0, format="fwf", sep=',', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
         """Load headers from a file and join them to `self.headers`.
 
         Parameters:
         -----------
         path : str
             A path to the file with headers.
+         has_header : bool, optional, defaults to False
+            Indicate if the first row of the file contains header names or not.
         headers_names : array-like of str, optional, defaults to None
             An array with column names to use as trace header names. If `has_header` is `True`, then `headers_names`
             specifies which columns will be loaded from the file.
-        has_header : bool, optional, defaults to False
-            Indicate if the first row of the file contains header names or not.
         usecols : array-like of int or None, optional, defaults to None
             Columns indices to be selected from the file. Unlike `pandas` loaders, it is allowed to use negative
             indices. Should be always passed in ascending order and have the same length as `headers_names` if both
@@ -331,17 +331,16 @@ class TraceContainer:
             headers from `headers_names` and `self.headers.columns` will be used.
         how : "inner" or "left", optional, defaults to "inner"
             If "inner", intersection of traces from `self.headers` and trace headers from the loaded file will be used
-            as new `self.headers`. If "left", all traces will be kept in `self.headers`. For traces that were missed in
-            the loaded file, missing headers will be filled with `np.nan`.
-            Whether to keep headers for traces that were missed in the loaded file.
+            as new `self.headers`. If "left", all traces will be kept in `self.headers`. For traces that were missing
+            in the loaded file, headers will be filled with `np.nan`.
+        skiprows : int, optional, defaults to 0
+            Number of rows to skip from the beginning of the file.
         format : "fwf" or "csv", optional, defaults to "fwf"
             Format of the file with headers. Currently, the following options are supported:
             * "fwf" - fixed-width format,
             * "csv" - comma-separated values format.
         sep : str, defaults to ','
             Separator used in the file. Used only for "csv" `format`.
-        skiprows : int, optional, defaults to 0
-            Number of rows to skip from the beginning of the file.
         decimal : str, optional, defaults to None
             Decimal point character. If not provided, it will be inferred from the file. Used only for "fwf" `format`.
         encoding : str, optional, defaults to "UTF-8"
@@ -365,8 +364,8 @@ class TraceContainer:
         """
         self = maybe_copy(self, inplace, ignore="headers") # pylint: disable=self-cls-assignment
 
-        loaded_headers = load_dataframe(path, columns=headers_names, has_header=has_header, usecols=usecols,
-                                        format=format, sep=sep, skiprows=skiprows, decimal=decimal,
+        loaded_headers = load_dataframe(path, has_header=has_header, columns=headers_names, usecols=usecols,
+                                        skiprows=skiprows, format=format, sep=sep, decimal=decimal,
                                         encoding=encoding, **kwargs)
         loaded_headers = pl.from_pandas(loaded_headers, nan_to_null=False)
 
@@ -392,8 +391,8 @@ class TraceContainer:
         return self
 
     @batch_method(target="for", use_lock=True)
-    def dump_headers(self, path, headers_names, dump_headers_names=False, format="fwf", append=False,
-                     float_precision=2, decimal='.', min_width=None, **kwargs):
+    def dump_headers(self, path, headers_names, dump_headers_names=False, format="fwf", append=False, sep=",",
+                     decimal='.', float_precision=2, min_width=None, **kwargs):
         """Save the selected headers to a file.
 
         Parameters
@@ -408,10 +407,12 @@ class TraceContainer:
             Output file format. If "fwf", use fixed-width format. If "csv", use comma-separated format.
         append : bool, optional, defaults to False
             Whether to append dumped headers to the file or write them to an empty file.
-        float_precision : int, optional, defaults to 2
-            Number of decimal places to write.
+        sep : str, defaults to ','
+            Separator used in the file. Used only for "csv" `format`.
         decimal : str, optional, defaults to '.'
             Decimal point character. Used only for "fwf" `format`.
+        float_precision : int, optional, defaults to 2
+            Number of decimal places to write.
         min_width : int or None, optional, defaults to None
             Minimal column width in the output file. Used only for "fwf" `format`.
         kwargs : misc, optional
@@ -429,9 +430,9 @@ class TraceContainer:
         """
         df = self.get_headers(headers_names)
         mode = 'ab' if append else 'wb'
-        with open(path, mode) as file:
-            dump_dataframe(file=file, df=df, has_header=dump_headers_names, format=format,
-                           float_precision=float_precision, decimal=decimal, min_width=min_width, **kwargs)
+        with open(path, mode) as f:
+            dump_dataframe(df=df, path=f, has_header=dump_headers_names, format=format, sep=sep, decimal=decimal,
+                           float_precision=float_precision, min_width=min_width, **kwargs)
         return self
 
     #------------------------------------------------------------------------#

@@ -60,12 +60,11 @@ def test_dump_load_dataframe(tmp_path, dataframe, headers_to_dump, headers_to_lo
     """Check that dump_dataframe and load_dataframe works with different ranges of int or float numbers."""
     file_path = tmp_path / "tmp"
 
-    kwargs = {"decimal": decimal} if format == "fwf" else {"separator": sep}
-    dump_dataframe(file_path, dataframe[headers_to_dump], has_header=has_header, format=format,
+    kwargs = {"decimal": decimal} if format == "fwf" else {"sep": sep}
+    dump_dataframe(df=dataframe[headers_to_dump], path=file_path, has_header=has_header, format=format,
                    float_precision=float_precision, **kwargs)
 
-    kwargs = kwargs if format == "fwf" else {"sep": sep}
-    loaded_df = load_dataframe(file_path, columns=headers_to_load, has_header=has_header, usecols=usecols,
+    loaded_df = load_dataframe(path=file_path, has_header=has_header, columns=headers_to_load, usecols=usecols,
                                format=format, **kwargs)
     assert_headers = headers_to_load
     if assert_headers is None:
@@ -99,12 +98,11 @@ class TestContainers:
         file_path = tmp_path / "tmp"
         _, dump_container = containers
 
-        kwargs = {"decimal": decimal} if format == "fwf" else {"separator": sep}
-        dump_container.dump_headers(file_path, headers_names=headers_to_dump, dump_headers_names=has_header,
+        kwargs = {"decimal": decimal} if format == "fwf" else {"sep": sep}
+        dump_container.dump_headers(path=file_path, headers_names=headers_to_dump, dump_headers_names=has_header,
                                     format=format, float_precision=float_precision, **kwargs)
 
-        kwargs = kwargs if format == "fwf" else {"sep": sep}
-        loaded_df = load_dataframe(file_path, columns=headers_to_load, has_header=has_header, usecols=usecols,
+        loaded_df = load_dataframe(path=file_path, has_header=has_header, columns=headers_to_load, usecols=usecols,
                                    format=format, **kwargs)
 
         assert_headers = headers_to_load
@@ -120,13 +118,13 @@ class TestContainers:
         file_path = tmp_path / "tmp"
         load_container, dump_container = containers
 
-        kwargs = {"decimal": decimal} if format == "fwf" else {"separator": sep}
-        dump_container.dump_headers(file_path, headers_names=headers_to_dump, dump_headers_names=has_header,
+        kwargs = {"decimal": decimal} if format == "fwf" else {"sep": sep}
+        dump_container.dump_headers(path=file_path, headers_names=headers_to_dump, dump_headers_names=has_header,
                                     format=format, float_precision=float_precision, **kwargs)
 
-        kwargs = kwargs if format == "fwf" else {"sep": sep}
-        loaded_container = load_container.load_headers(file_path, headers_names=headers_to_load, has_header=has_header,
-                                                         usecols=usecols, format=format, **kwargs)
+        loaded_container = load_container.load_headers(path=file_path, has_header=has_header,
+                                                       headers_names=headers_to_load, usecols=usecols, format=format,
+                                                       **kwargs)
 
         correct_headers = dump_container.headers[loaded_container.headers.columns]
         assert ((correct_headers - loaded_container.headers).max() <= 10**(-float_precision)).all()

@@ -988,7 +988,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         if copy_headers:
             headers = headers.copy()
-        indices = get_cols(headers, "TRACE_SEQUENCE_FILE") - 1
+        indices = get_cols(headers, "TRACE_SEQUENCE_FILE").to_numpy() - 1
         data, sample_interval, delay = self.load_traces(indices, limits=limits, chunk_size=chunk_size,
                                                         n_workers=n_workers, return_samples_info=True)
         return Gather(headers=headers, data=data, sample_interval=sample_interval, delay=delay, survey=self)

@@ -92,7 +92,7 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=(
             os.remove(path)
 
 
-def load_dataframe(path, columns=None, has_header=False, usecols=None, format="fwf", sep=',', skiprows=0, decimal=None,
+def load_dataframe(path, has_header=False, columns=None, usecols=None, skiprows=0, format="fwf", sep=',', decimal=None,
                    encoding="UTF-8", **kwargs):
     """Read a file into a `pd.DataFrame`. See :func:`TraceContainer.load_headers` for arguments description."""
     if usecols is not None or decimal is None:
@@ -118,7 +118,7 @@ def load_dataframe(path, columns=None, has_header=False, usecols=None, format="f
     if format == "csv":
         if decimal != ".":
             # FIXME: Add decimal support when the issue (https://github.com/pola-rs/polars/issues/6698) is solved
-            raise ValueError("`decimal` differ from '.' is not supported for 'csv' format")
+            raise ValueError("`decimal` different from '.' is not supported for 'csv' format")
         new_columns = None if has_header else columns
         columns = usecols if not has_header or columns is None else columns
         return pl.read_csv(path, has_header=has_header, columns=columns, new_columns=new_columns, separator=sep,
@@ -126,19 +126,22 @@ def load_dataframe(path, columns=None, has_header=False, usecols=None, format="f
     raise ValueError(f"Unknown format `{format}`, available formats are ('fwf', 'csv')")
 
 
-def dump_dataframe(file, df, has_header=False, format="fwf", float_precision=2, decimal=".", min_width=None, **kwargs):
+def dump_dataframe(df, path, has_header=False, format="fwf", sep=",", decimal=".", float_precision=2, min_width=None,
+                   **kwargs):
     """Save a provided `pd.DataFrame` to a file. See :func:`TraceContainer.dump_headers` for arguments description."""
     if format == "fwf":
-        _dump_to_fwf(file, df, has_header=has_header, float_precision=float_precision, decimal=decimal,
+        _dump_to_fwf(df=df, path=path, has_header=has_header, decimal=decimal, float_precision=float_precision,
                      min_width=min_width)
     elif format == "csv":
+        if decimal != ".":
+            raise ValueError("`decimal` different from '.' is not supported for 'csv' format")
         df = pl.from_pandas(df)
-        df.write_csv(file, has_header=has_header, float_precision=float_precision, **kwargs)
+        df.write_csv(path, has_header=has_header, float_precision=float_precision, separator=sep, **kwargs)
     else:
         raise ValueError(f"Unknown format `{format}`, available formats are ('fwf', 'csv')")
 
 
-def _dump_to_fwf(path, df, has_header, float_precision, decimal, min_width=None):
+def _dump_to_fwf(df, path, has_header, decimal, float_precision, min_width=None):
     def format_float(col, n):
         """Clip all floats to the same amount of fractional numbers and pad with zeros where needed."""
         round_col = pl.col(col).round(n).abs()
