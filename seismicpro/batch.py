@@ -221,9 +221,15 @@ class SeismicBatch(Batch):
                 raise ValueError(f"{src} component contains items that are not instances of Gather class")
             combined_gathers = []
             for gather_chunk in np.split(gathers, split_pos):
+                samples_params = {(gather.n_times, gather.sample_interval, gather.delay) for gather in gather_chunk}
+                if len(samples_params) != 1:
+                    raise ValueError(f"All gathers in {src} component must have the same samples")
+                _, sample_interval, delay = samples_params.pop()
                 headers = pd.concat([gather.headers for gather in gather_chunk])
                 data = np.concatenate([gather.data for gather in gather_chunk])
-                combined_gathers.append(Gather(headers, data, gather_chunk[0].samples, gather_chunk[0].survey))
+                gather = Gather(headers, data, sample_interval=sample_interval, delay=delay,
+                                survey=gather_chunk[0].survey)
+                combined_gathers.append(gather)
             combined_batch.add_components(dst, init=np.array(combined_gathers))
         return combined_batch
 

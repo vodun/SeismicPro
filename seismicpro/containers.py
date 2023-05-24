@@ -1,6 +1,7 @@
 """Defines base containers - mixin classes that implement properties and basic processing logic for objects that store
 particular types of data:
-* `SamplesContainer` - implements extra properties for subclasses with defined `samples` attribute,
+* `SamplesContainer` - implements extra properties and methods for concrete subclasses that store information about
+  recording times of some data attribute,
 * `TraceContainer` - implements properties and processing methods for subclasses with defined `headers` attribute,
 * `GatherContainer` - a subclass of `TraceContainer` that also implements fast selection of gather headers by index.
 """
@@ -16,8 +17,15 @@ from .utils import to_list, get_cols, create_indexer, maybe_copy
 
 
 class SamplesContainer:
-    """A mixin class that implements extra properties for concrete subclasses with defined `samples` attribute that
-    stores recording times for each trace value as a 1d `np.ndarray`."""
+    """A mixin class that implements extra properties and methods for concrete subclasses that store information about
+    recording times of some data attribute (usually seismic traces).
+
+    The following attributes are assumed to be defined:
+    - `sample_interval` - sample interval of seismic traces,
+    - `delay` - global delay recording time of the container,
+    - `samples` - recording times for each trace value as a 1d `np.ndarray`. Should be generally created using
+      `create_samples` method.
+    """
 
     @property
     def times(self):
@@ -33,6 +41,25 @@ class SamplesContainer:
     def n_times(self):
         """int: Trace length in samples."""
         return len(self.times)
+
+    @property
+    def sample_rate(self):
+        """float: Sample rate of seismic traces. Measured in Hz."""
+        return 1000 / self.sample_interval
+
+    @staticmethod
+    def create_samples(n_samples, sample_interval, delay=0):
+        """Create an array of samples by their number, sampling interval and delay recording time."""
+        return (delay + sample_interval * np.arange(n_samples)).astype(np.float32)
+
+    def times_to_indices(self, times, round=False):
+        """Convert `times` to their indices in the `samples` array of the container. If some value of `times` is not
+        present in `samples`, its index is linearly interpolated or extrapolated. The resulting indices are returned as
+        a floating-valued array if `round` is `False` or rounded to the nearest integer otherwise."""
+        indices = (times - self.delay) / self.sample_interval
+        if round:
+            indices = np.rint(indices).astype(np.int32)
+        return indices
 
 
 class TraceContainer:

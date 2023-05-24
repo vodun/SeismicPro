@@ -133,25 +133,3 @@ class MuterField(ValuesAgnosticField, VFUNCFieldMixin):
                  for item in field.item_container.values()]
         return cls(items, survey=field.survey, is_geographic=field.is_geographic,
                    auto_create_interpolator=field.auto_create_interpolator)
-
-    @classmethod
-    def from_stacking_velocity_field(cls, field, max_stretch_factor=0.65):
-        """Create a muter field to attenuate the effect of waveform stretching after the nmo correction
-        by constructing a muter for each stacking velocity in a `field`.
-
-        Parameters
-        ----------
-        field : StackingVelocityField
-            Stacking velocity field to construct a muter field from.
-        max_stretch_factor : float, defaults to 0.65
-            Maximum allowed stretch factor.
-
-        Returns
-        -------
-        field : MuterField
-            Created muter field.
-        """
-        items = [cls.item_class.from_stacking_velocity(item, max_stretch_factor=max_stretch_factor)
-                 for item in field.items]
-        return cls(items, survey=field.survey, is_geographic=field.is_geographic,
-                   auto_create_interpolator=field.auto_create_interpolator)
