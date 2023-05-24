@@ -68,27 +68,30 @@ def test_dump_load_dataframe(tmp_path, dataframe, headers_to_dump, headers_to_lo
     loaded_df = load_dataframe(file_path, columns=headers_to_load, has_header=has_header, usecols=usecols,
                                format=format, **kwargs)
     assert_headers = headers_to_load
-    if headers_to_load is None:
+    if assert_headers is None:
         assert_headers = headers_to_dump if usecols is None else np.array(headers_to_dump)[usecols]
     assert ((dataframe[assert_headers] - loaded_df).max() <= 10**(-float_precision)).all()
 
 
-@pytest.mark.parametrize("headers_to_dump,headers_to_load,usecols,has_header,float_precision,decimal,sep",[
+@pytest.mark.parametrize("headers_to_dump,headers_to_load,usecols,has_header,float_precision,decimal,sep", [
     [["TRACE_SEQUENCE_FILE", "int_0_1000"], ["TRACE_SEQUENCE_FILE", "int_0_1000"], None, True, 2, ".", ","],
     [["TRACE_SEQUENCE_FILE", "float_1000_1000"], ["TRACE_SEQUENCE_FILE", "float_1000_1000"], None, False, 2, ",", ","],
     [["FieldRecord", "TraceNumber", "int_1000_1000", "float_1_1", "float_0_1000"],
      ["FieldRecord", "TraceNumber", "int_1000_1000", "float_1_1", "float_0_1000"], None, True, 4, ".", ";"],
+    [["FieldRecord", "TraceNumber", "int_0_1000", "float_0_1", "float_1000_1000"],
+     ["FieldRecord", "TraceNumber", "int_0_1000", "float_0_1", "float_1000_1000"], None, False, 4, ".", ";"],
+    [["FieldRecord", "TraceNumber", "SourceX", "SourceY", "int_0_1", "float_0_1", "float_1000_1000"],
+     ["FieldRecord", "TraceNumber", "int_0_1", "float_0_1", "float_1000_1000"], None, True, 2, ",", ","],
     [["FieldRecord", "TraceNumber", "SourceX", "SourceY", "float_1000_1000"],
      ["FieldRecord", "TraceNumber", "float_1000_1000"], [0, 1, -1], False, 2, ",", ";"],
     [["FieldRecord", "TraceNumber", "SourceX", "SourceY", "float_1000_1000"], None, [0, 1, -1], True, 2, ".", ","],
     [["FieldRecord", "TraceNumber", "SourceX", "SourceY", "int_1000000_1000000", "float_1000000_1000000"],
      None, None, True, 2, ".", ","],
-    [["FieldRecord", "TraceNumber", "SourceX", "SourceY", "int_0_1", "float_0_1", "float_1000_1000"],
-     ["FieldRecord", "TraceNumber", "int_0_1", "float_0_1", "float_1000_1000"], None, True, 2, ",", ","]
 ])
 @pytest.mark.parametrize("format", ["fwf", "csv"])
 class TestContainers:
     """Test dump and load containers"""
+
     def test_dump_container(self, tmp_path, containers, headers_to_dump, headers_to_load, usecols, has_header,
                             float_precision, decimal, sep, format):
         """Dump containers headers via `dump_headers` and check that loaded headers via `load_dataframe` has not
@@ -105,11 +108,10 @@ class TestContainers:
                                    format=format, **kwargs)
 
         assert_headers = headers_to_load
-        if headers_to_load is None:
+        if assert_headers is None:
             assert_headers = headers_to_dump if usecols is None else np.array(headers_to_dump)[usecols]
         headers = dump_container.get_headers(assert_headers)
         assert ((headers - loaded_df).max() <= 10**(-float_precision)).all()
-
 
     def test_dump_load_container(self, tmp_path, containers, headers_to_dump, headers_to_load, usecols, has_header,
                                  float_precision, decimal, sep, format):
