@@ -91,16 +91,16 @@ M_2_PI = 2 / np.pi
 
 @njit
 def polevl(x, coef):
-    res = 0
+    res = np.float64(0)
     for c in coef:
         res = res * x + c
     return res
 
-@numba.njit(fastmath=True, parallel=True)
+@njit(fastmath=True, parallel=False)
 def j0(array):
     """ First kind zero order Bessel function."""
     res = np.empty_like(array)
-    for i in numba.prange(len(array)):
+    for i in range(len(array)):
         x = array[i]
         if x < 0:
             x = -x
@@ -116,18 +116,18 @@ def j0(array):
             w = 5.0 / x
             q = 25.0 / (x * x)
             p = polevl(q, PP[-6:]) / polevl(q, PQ[-6:])
-            q = polevl(q, QP[-7:]) / polevl(q, QQ[-7:]);
+            q = polevl(q, QP[-7:]) / polevl(q, QQ[-7:])
             xn = x - np.pi / 4
             p = p * np.cos(xn) - w * q * np.sin(xn)
             res[i] =  (p * SQ2OPI / np.sqrt(x))
     return res
 
-@numba.njit(fastmath=True, parallel=True)
+@njit(fastmath=True, parallel=False)
 def y0(array):
     """ Second kind zero order Bessel function."""
     res = np.empty_like(array)
     j0_x = j0(array)
-    for i in numba.prange(len(array)):
+    for i in range(len(array)):
         x = array[i]
         if x <= 5.0:
             if x == 0:

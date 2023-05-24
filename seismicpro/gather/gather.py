@@ -916,18 +916,18 @@ class Gather(TraceContainer, SamplesContainer):
         return SlantStack(gather=self, velocities=velocities, window_size=window_size, mode=mode)
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_fv(self, velocities, window_size=1, mode='SS', fmax=None):
+    def calculate_fv(self, velocities, fmax=None):
         from ..velocity_spectrum.velocity_spectrum import SlantStack
-        ss = SlantStack(gather=self, velocities=velocities, window_size=window_size, mode=mode)
-        N = self.n_samples
-        A = np.fft.fft(ss.velocity_spectrum, axis=0)[:N //2, :]
-        f = np.fft.fftfreq(N, self.sample_interval / 1000)[:N // 2]
-        A = np.abs(A)
-
+        ss = SlantStack(gather=self, velocities=velocities, window_size=1, mode='SS')
+    
+        A = np.fft.fft(ss.velocity_spectrum, axis=0)
+        f = np.fft.fftfreq(self.n_samples, self.sample_interval / 1000)
+        
         fmax = fmax or f.max()
-        mask = f < fmax
-        f = f[mask]
+        mask = (0 < f) & (f < fmax)
         A = A[mask]
+        f = f[mask]
+        A = np.abs(A)
         A = np.where(A.max(axis=1, keepdims=True) != 0, A / A.max(axis=1, keepdims=True), 0)
 
         ss.velocity_spectrum = A
@@ -943,7 +943,7 @@ class Gather(TraceContainer, SamplesContainer):
     @batch_method(target="threads", copy_src=False)
     def calculate_bf(self, velocities, fmax=None, weighting='sqrt', steering="cylindrical"):
         from ..velocity_spectrum.velocity_spectrum import BeamFormer
-        return BeamFormer(self, velocities, fmax=fmax, weighting='sqrt', steering="cylindrical")
+        return BeamFormer(self, velocities, fmax=fmax)
 
 
     #------------------------------------------------------------------------#

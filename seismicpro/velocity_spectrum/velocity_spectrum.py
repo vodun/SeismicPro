@@ -794,7 +794,7 @@ class EmptySpectrum(VerticalVelocitySpectrum):
 from numba import njit, prange
 @njit(nogil=True, parallel=True)
 def ps(velocities, frequencies, offsets, fft):
-    power = np.empty((len(velocities), len(frequencies)), dtype=np.float32)
+    power = np.empty((len(velocities), len(frequencies)), dtype=np.float64)
     dx = offsets[1:] - offsets[:-1]
     #for row, vel in enumerate(velocities):
     for row in prange(len(velocities)):
@@ -804,8 +804,8 @@ def ps(velocities, frequencies, offsets, fft):
             frq = frequencies[col]
             f_index = col
             shift = np.exp(exponent*frq)
-            inner = shift*fft[:, f_index]/np.abs(fft[:, f_index])
-            #inner = np.where(np.abs(fft[:, f_index]), shift*fft[:, f_index]/np.abs(fft[:, f_index]), 0)
+            #inner = shift*fft[:, f_index]/np.abs(fft[:, f_index])
+            inner = np.where(np.abs(fft[:, f_index]), shift*fft[:, f_index]/np.abs(fft[:, f_index]), 0)
             power[row, col] = np.abs(np.sum(0.5*dx*(inner[:-1] + inner[1:])))
 
     return power
@@ -822,101 +822,49 @@ class PhaseShist(EmptySpectrum):
         f = f[f < fmax]
         power = ps(velocities, f, gather.offsets, A)
 
-        power_max = np.nanmax(power, axis=1, keepdims=True)
-        power = np.where(power_max != 0, power / power_max, 0)
+        #power_max = np.nanmax(power, axis=1, keepdims=True)
+        #power = np.where(power_max != 0, power / power_max, 0)
     
         super().__init__(gather, velocities, f, power.T)
     
  
-def _spatiospectral_correlation_matrix(tmatrix, frq_ids=None, weighting=None):
-    # TODO (jpv): Rewrite docstring.
-    nchannels, samples_per_block, nblocks = tmatrix.shape
-
-    # Perform FFT
-    transform = np.fft.fft(tmatrix, axis=1)
-    print('fft')
-
-    # Trim FFT
-    if frq_ids is not None:
-        transform = transform[:, frq_ids, :]
-
-    # Define weighting matrix
-    if weighting == "invamp":
-        _, nfrqs, _ = transform.shape
-        weighting = 1/np.abs(np.mean(transform, axis=-1))
-
-        for i in range(nfrqs):
-            w = weighting[:, i]
-            for b in range(nblocks):
-                transform[:, i, b] *= w
-
-    # Calculate spatiospectral correlation matrix
-    nchannels, nfrqs, nblocks = transform.shape
-    spatiospectral = np.empty((nchannels, nchannels, nfrqs), dtype=complex)
-    scm = np.zeros((nchannels, nchannels), dtype=complex)
-    tslice = np.zeros((nchannels, 1), dtype=complex)
-    tslice_h = np.zeros((1, nchannels), dtype=complex)
-    for i in range(nfrqs):
-        scm[:, :] = 0
-        for j in range(nblocks):
-            tslice[:, 0] = transform[:, i, j]
-            tslice_h[0, :] = np.conjugate(tslice)[:, 0]
-            scm += np.dot(tslice, tslice_h)
-        scm /= nblocks
-        spatiospectral[:, :, i] = scm[:]
-
-    return spatiospectral
 
 from tqdm import tqdm
-from scipy import special
-class BeamFormer(EmptySpectrum):
-    def __init__(self, gather, velocities, fmax=None, weighting='sqrt', steering="cylindrical"):
-        tmatrix = gather.data.reshape(gather.n_traces, gather.n_samples, 1)
-        offsets = gather.offsets
-        # Calculate the spatiospectral correlation matrix
+from .utils.bessel import j0, y0
 
-        frequencies = np.fft.fftfreq(gather.n_samples, gather.sample_interval / 1000)#[:N // 2]
+@njit(parallel=True)
+def fdbf(fft, velocities, frequencies, offsets):
+    power = np.empty((len(frequencies), len(velocities)), dtype=np.complex128)
+    k = 2 * np.pi * frequencies.reshape(-1, 1) / velocities.reshape(1, -1)
+    for i in prange(len(frequencies)):
+        for j in range(len(velocities)):
+            kx = k[i, j] * offsets
+            h0_kx = j0(kx) + 1j * y0(kx)
+            angle_kx = -1j * np.angle(h0_kx)
+            steer = np.exp(angle_kx).reshape(1, -1)
+
+            HS = np.conjugate(steer) @ fft[:, i]
+            power[i, j] = (HS * np.conjugate(HS)).item()
+
+    return power
+
+class BeamFormer(EmptySpectrum):
+
+    def __init__(self, gather, velocities, fmax=None, weighting='sqrt', steering="cylindrical"):
+        frequencies = np.fft.fftfreq(gather.n_samples, gather.sample_interval / 1000)
+        fft = np.fft.fft(gather.data)
+    
         fmax = fmax or frequencies.max()
         mask = (0 < frequencies) & (frequencies < fmax)
-        print('START COMPUTE SSCM')
-        sscm = _spatiospectral_correlation_matrix(tmatrix, frq_ids=mask, weighting=weighting)
-        print('COMPUTED SSCM')
         frequencies = frequencies[mask]
+        fft = fft[:, mask]
 
-        # Weighting
-        if weighting == "sqrt":
-            offsets_n = offsets.reshape(gather.n_traces, 1)
-            offsets_h = np.transpose(np.conjugate(offsets_n))
-            w = np.dot(offsets_n, offsets_h)
-        else:
-            w = np.ones((gather.n_traces, gather.n_traces))
-
-        # Steering
-        if steering == "cylindrical":
-            def create_steering(kx):
-                return np.exp(-1j * np.angle(special.j0(kx) + 1j*special.y0(kx)))
-        else:
-            def create_steering(kx):
-                return np.exp(-1j * kx)
-
-        steer = np.empty((gather.n_traces, 1), dtype=complex)
-        power = np.empty((len(velocities), len(frequencies)), dtype=complex)
-        kx = np.empty_like(offsets)
-        for i, f in tqdm(enumerate(frequencies)):
-            weighted_sscm = sscm[:, :, i]*w
-            for j, v in enumerate(velocities):
-                kx[:] = 2*np.pi*f/v * offsets[:]
-                steer[:, 0] = create_steering(kx)[:]
-                res = np.dot(np.transpose(np.conjugate(steer)), weighted_sscm)
-                # print(np.isnan(res))
-                _power = np.dot(res, steer)
-                power[j, i] = _power
-
+        power = fdbf(fft, velocities, frequencies, gather.offsets)
         power = np.abs(power)
         power_max = np.nanmax(power, axis=1, keepdims=True)
         power = np.where(power_max != 0, power / power_max, 0)
 
-        super().__init__(gather, velocities, frequencies, power.T)
+        super().__init__(gather, velocities, frequencies, power)
 
 
 @njit(nogil=True, parallel=True)
