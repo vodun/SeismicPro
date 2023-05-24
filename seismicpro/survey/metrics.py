@@ -39,9 +39,6 @@ from matplotlib import patches
 
 from ..metrics import Metric
 
-# Ignore all warnings related to empty slices or dividing by zero
-warnings.simplefilter("ignore", category=RuntimeWarning)
-
 
 class SurveyAttribute(Metric):
     """A utility metric class that reindexes given survey by `index_cols` and allows for plotting gathers by their
@@ -83,8 +80,11 @@ class TracewiseMetric(SurveyAttribute):
     def __call__(self, gather):
         """Compute metric value for each trace of the gather by sequentially applying `self.preprocess`,
         `self.get_values` and `self.aggregate` methods."""
-        gather = self.preprocess(gather)
-        values = self.get_values(gather)
+        # Ignore warnings related to empty slices or dividing by zero
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            gather = self.preprocess(gather)
+            values = self.get_values(gather)
         return self.aggregate(values)
 
     @property
@@ -533,8 +533,11 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
             1. Sum of squares of amplitudes in the defined window for each trace,
             2. Number of amplitudes in a specified window for each trace.
         """
-        gather = self.preprocess(gather)
-        squares, nums = self.get_values(gather)
+        # Ignore warnings related to empty slices or dividing by zero
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            gather = self.preprocess(gather)
+            squares, nums = self.get_values(gather)
         if return_rms:
             return self.compute_rms(squares, nums)
         return squares, nums
@@ -686,7 +689,7 @@ class WindowRMS(BaseWindowRMSMetric):
                                      metric_offsets=self.offsets, compute_stats_by_ixs=self.compute_stats_by_ixs)
 
     def _get_time_ixs(self, gather):
-        times_ixs = np.clip(gather.times_to_indices(self.times, round=True), 0, len(gather.samples)-1)
+        times_ixs = np.clip(gather.times_to_indices(self.times, round=True), 0, gather.n_times - 1)
         # Include the next index to mimic the behavior of conventional software
         times_ixs[1] += 1
         return times_ixs
@@ -791,11 +794,15 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
         """Calculates the start and end indices of a window of size `window_size` centered around the refractor
         velocity shifted by `shift`."""
         mid_times = fbp_times + shift
-        start_times = np.clip(mid_times - (window_size - window_size // 2), 0, samples[-1])
-        end_times = np.clip(mid_times + (window_size // 2), 0, samples[-1])
+        n_samples = len(samples)
 
-        start_ixs = np.rint((start_times - delay) / sample_interval).astype(np.int32)
-        end_ixs = np.rint((end_times - delay) / sample_interval).astype(np.int32)
+        start_times = mid_times - (window_size - window_size // 2)
+        start_ixs = (start_times - delay) / sample_interval
+        start_ixs = np.clip(np.rint(start_ixs), 0, n_samples - 1).astype(np.int32)
+
+        end_times = mid_times + (window_size // 2)
+        end_ixs = (end_times - delay) / sample_interval
+        end_ixs = np.clip(np.rint(end_ixs), 0, n_samples - 1).astype(np.int32)
         return start_ixs, end_ixs
 
     def add_window_on_plot(self, ax, gather, color="lime", legend=None):

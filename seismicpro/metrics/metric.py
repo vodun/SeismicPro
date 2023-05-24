@@ -46,7 +46,7 @@ class Metric:
     Parameters
     ----------
     name : str, optional
-        Metric name, overrides default name if given. By default name corresponds to the name of the metric class.
+        Metric name, overrides default name if given. Defaults to the name of the metric class.
 
     Attributes
     ----------
