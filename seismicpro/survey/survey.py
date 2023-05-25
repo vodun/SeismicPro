@@ -520,8 +520,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         After the method is executed `has_inferred_binning` flag is set to `True` and all the calculated values can be
         obtained via corresponding attributes.
         """
-        # Find unique pairs of inlines and crosslines, drop_duplicates is way faster than np.unique
-        lines = self.get_headers(["INLINE_3D", "CROSSLINE_3D"]).drop_duplicates().to_numpy()
+        # Find unique pairs of inlines and crosslines
+        lines = pl.from_pandas(self.get_headers(["INLINE_3D", "CROSSLINE_3D"]), rechunk=False).unique().to_numpy()
 
         # Construct a binary mask of a field where True value is set for bins containing at least one trace
         # and False otherwise
@@ -555,12 +555,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         bins_cols = ["INLINE_3D", "CROSSLINE_3D"]
 
         # Construct a mapping from bins to their coordinates and back
-        bins_to_coords = self.get_headers(coords_cols + bins_cols)
-        bins_to_coords = bins_to_coords.groupby(bins_cols, sort=False, as_index=False).agg("mean")
-        bins_to_coords_reg = LinearRegression(copy_X=False, n_jobs=-1)
-        bins_to_coords_reg.fit(bins_to_coords[bins_cols].to_numpy(), bins_to_coords[coords_cols].to_numpy())
-        coords_to_bins_reg = LinearRegression(copy_X=False, n_jobs=-1)
-        coords_to_bins_reg.fit(bins_to_coords[coords_cols].to_numpy(), bins_to_coords[bins_cols].to_numpy())
+        bins_to_coords = pl.from_pandas(self.get_headers(coords_cols + bins_cols), rechunk=False)
+        bins_to_coords = bins_to_coords.groupby(bins_cols).agg(pl.col(coords_cols).mean()).to_pandas()
+        bins = bins_to_coords[bins_cols].to_numpy()
+        coords = bins_to_coords[coords_cols].to_numpy()
+        bins_to_coords_reg = LinearRegression(copy_X=False, n_jobs=-1).fit(bins, coords)
+        coords_to_bins_reg = LinearRegression(copy_X=False, n_jobs=-1).fit(coords, bins)
 
         # Compute geographic field contour
         geographic_contours = tuple(bins_to_coords_reg.predict(contour[:, 0])[:, None].astype(np.float32)
