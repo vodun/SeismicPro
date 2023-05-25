@@ -104,6 +104,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     name : str, optional
         Survey name. If not given, source file name is used. This name is mainly used to identify the survey when it is
         added to an index, see :class:`~index.SeismicIndex` docs for more info.
+    sample_interval : float, optional
+        Sample interval of seismic traces in the source SEG-Y file. Inferred from binary and trace headers if not
+        given. Measured in milliseconds.
+    delay : float, optional, defaults to 0
+        Global delay recording time of seismic traces in the source SEG-Y file. Measured in milliseconds.
     limits : int or tuple or slice, optional
         Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
         used as arguments to init a `slice` object. If not given, whole traces are used. Measured in samples.
@@ -196,8 +201,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     # pylint: disable-next=too-many-arguments, too-many-statements
     def __init__(self, path, header_index, header_cols=None, source_id_cols=None, receiver_id_cols=None, name=None,
-                 limits=None, validate=True, engine="memmap", endian="big", chunk_size=25000, n_workers=None,
-                 bar=True):
+                 sample_interval=None, delay=0, limits=None, validate=True, engine="memmap", endian="big",
+                 chunk_size=25000, n_workers=None, bar=True):
         self.path = os.path.abspath(path)
         self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
@@ -235,10 +240,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if unknown_headers:
             raise ValueError(f"Unknown headers {', '.join(unknown_headers)}")
 
-        # Open the SEG-Y file
+        # Open the SEG-Y file and set samples-related attributes of the file
         self.loader = Loader(self.path, engine=engine, endian=endian, ignore_geometry=True)
+        sample_interval = get_first_defined(sample_interval, self.loader.sample_interval / 1000)
+        if sample_interval <= 0:
+            raise ValueError("Sample interval must be positive, please provide a valid sample_interval")
+        self.file_samples = self.create_samples(self.loader.n_samples, sample_interval, delay)
+        self.file_sample_interval = sample_interval
+        self.file_delay = delay
 
-        # Set samples and sample_rate according to passed `limits`.
+        # Set samples and sample_rate according to passed `limits`
         self.limits = None
         self.samples = None
         self.sample_interval = None
@@ -296,18 +307,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     @property
     def file_sample_rate(self):
         """float: Sample rate of seismic traces in the source SEG-Y file. Measured in Hz."""
-        return self.loader.sample_rate
-
-    @property
-    def file_sample_interval(self):
-        """float: Sample interval of seismic traces in the source SEG-Y file. Measured in milliseconds."""
-        return self.loader.sample_interval
-
-    @property
-    def file_samples(self):
-        """1d np.ndarray of floats: Recording time for each trace value in the source SEG-Y file. Measured in
-        milliseconds."""
-        return self.loader.samples
+        return 1000 / self.file_sample_interval
 
     @property
     def n_file_samples(self):
