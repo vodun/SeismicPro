@@ -486,8 +486,8 @@ class Gather(TraceContainer, SamplesContainer):
             mean = np.atleast_2d(np.array(self.survey.mean))
             std = np.atleast_2d(np.array(self.survey.std))
         elif not tracewise:
-            mean = np.atleast_2d(np.array(np.mean(self.data), dtype=self.data.dtype))
-            std = np.atleast_2d(np.array(np.std(self.data), dtype=self.data.dtype))
+            mean = np.mean(self.data, keepdims=True)
+            std = np.std(self.data, keepdims=True)
         else:
             mean, std = None, None
         self.data = normalization.scale_standard(self.data, mean, std, np.float32(eps))

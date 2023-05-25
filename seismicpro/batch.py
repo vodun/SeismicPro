@@ -166,7 +166,7 @@ class SeismicBatch(Batch):
         Parameters
         ----------
         field : Field
-            A field to update.
+            A field to evaluate.
         src : str
             A component of instances to evaluate the field on. Each of them must have well-defined coordinates.
         dst : src

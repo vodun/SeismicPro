@@ -1,6 +1,7 @@
 """Implements metrics for quality control of first breaks given the near-surface velocity model."""
 from math import ceil
 from functools import partial
+
 import numpy as np
 from numba import njit
 from scipy.signal import hilbert

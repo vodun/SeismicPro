@@ -637,7 +637,7 @@ class RefractorVelocityField(SpatialField):
 
     @staticmethod
     def _calc_metrics(metrics, survey, field, gather_indices_chunk, coords_chunk):
-        """Calculate metrics for a given gather index and refractor velocity."""
+        """Calculate metrics for a given chunk of gather indices and a refractor velocity field."""
         refractor_velocities = field(coords_chunk)
         results = []
         for idx, rv in zip(gather_indices_chunk, refractor_velocities):
@@ -661,8 +661,8 @@ class RefractorVelocityField(SpatialField):
 
         Parameters
         ----------
-        survey : Survey
-            Survey to load traces from.
+        survey : Survey, optional
+            Survey to load traces from. Defaults to a survey the field is linked to.
         metrics : instance or subclass of :class:`~metrics.RefractorVelocityMetric` of list of them, optional.
             Metrics to calculate. Defaults to those defined in `~metrics.REFRACTOR_VELOCITY_QC_METRICS`.
         first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
@@ -676,7 +676,7 @@ class RefractorVelocityField(SpatialField):
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
         chunk_size : int, optional, defaults to 250
-            The number of gathers to calculate metrics on for each of spawned threads.
+            The number of gathers to calculate metrics for in each of spawned threads.
 
         Returns
         -------
