@@ -147,6 +147,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Trace headers that uniquely identify a seismic source.
     receiver_id_cols : str or list of str or None
         Trace headers that uniquely identify a receiver.
+    n_sources : int or None
+        The number of sources in the survey. `None` if `source_id_cols` are undefined.
+    n_receivers : int or None
+        The number of receivers in the survey. `None` if `receiver_id_cols` are undefined.
     loader : segfast.SegyioLoader or segfast.MemmapLoader
         SEG-Y file loader. Its type depends on the `engine` passed during survey instantiation.
     has_stats : bool
@@ -269,6 +273,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         headers.sort_index(kind="stable", inplace=True)
         self._headers = None
         self._indexer = None
+        self.n_sources = None
+        self.n_receivers = None
         self.headers = headers
 
         # Define all stats-related attributes
@@ -315,20 +321,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return len(self.file_samples)
 
     @property
-    def n_sources(self):
-        """int: The number of sources."""
-        if self.source_id_cols is None:
-            return None
-        return len(self.get_headers(self.source_id_cols).drop_duplicates())
-
-    @property
-    def n_receivers(self):
-        """int: The number of receivers."""
-        if self.receiver_id_cols is None:
-            return None
-        return len(self.get_headers(self.receiver_id_cols).drop_duplicates())
-
-    @property
     def dead_traces_marked(self):
         """bool: `mark_dead_traces` called."""
         return self.n_dead_traces is not None
@@ -350,6 +342,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         GatherContainer.headers.fset(self, headers)
         htp_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
         self.headers[HDR_TRACE_POS] = np.arange(self.n_traces, dtype=htp_dtype)
+
+        # Update the number of sources and receivers
+        if self.source_id_cols is not None or self.receiver_id_cols is not None:
+            polars_headers = self.get_polars_headers()
+            if self.source_id_cols is not None:
+                self.n_sources = len(polars_headers.select(self.source_id_cols).unique())
+            if self.receiver_id_cols is not None:
+                self.n_receivers = len(polars_headers.select(self.receiver_id_cols).unique())
 
     def __getstate__(self):
         """Create pickling state of a survey from its `__dict__`. Don't pickle `headers` and `indexer` if
@@ -392,19 +392,17 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
 
         if self.source_id_cols is not None:
-            n_sources = self.n_sources  # Run possibly time-consuming calculation once
             msg += f"""
         Source ID headers:         {", ".join(to_list(self.source_id_cols))}
-        Number of sources:         {n_sources}
-        Mean source fold:          {int(self.n_traces / n_sources)}
+        Number of sources:         {self.n_sources}
+        Mean source fold:          {int(self.n_traces / self.n_sources)}
         """
 
         if self.receiver_id_cols is not None:
-            n_receivers = self.n_receivers  # Run possibly time-consuming calculation once
             msg += f"""
         Receiver ID headers:       {", ".join(to_list(self.receiver_id_cols))}
-        Number of receivers:       {n_receivers}
-        Mean receiver fold:        {int(self.n_traces / n_receivers)}
+        Number of receivers:       {self.n_receivers}
+        Mean receiver fold:        {int(self.n_traces / self.n_receivers)}
         """
 
         if self.has_inferred_geometry:
@@ -439,6 +437,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         print(self)
 
     def get_polars_headers(self):
+        """Return survey trace headers as a `polars.DataFrame`. The index is transformed into individual columns."""
         headers = self.headers.copy(deep=False)
         headers.reset_index(inplace=True)
         return pl.from_pandas(headers, rechunk=False)
@@ -452,6 +451,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if validate:
             validate_source_headers(self.get_polars_headers(), cols)
         self.source_id_cols = cols
+        self.n_sources = len(self.get_polars_headers().select(cols).unique())
 
     def set_receiver_id_cols(self, cols, validate=True):
         """Set new trace headers that uniquely identify a receiver and optionally validate consistency of
@@ -461,6 +461,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if validate:
             validate_receiver_headers(self.get_polars_headers(), cols)
         self.receiver_id_cols = cols
+        self.n_receivers = len(self.get_polars_headers().select(cols).unique())
 
     def validate_headers(self, offset_atol=10, cdp_atol=10, elevation_atol=5, elevation_radius=50):
         """Check trace headers for consistency.
