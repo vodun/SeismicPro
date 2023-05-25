@@ -138,29 +138,25 @@ def _validate_trace_headers(headers, offset_atol=10, cdp_atol=10, elevation_atol
                             f"{n_not_close_cdp} traces ({(n_not_close_cdp / n_traces):.2%})")
 
     if {*shot_coords_cols, "SourceSurfaceElevation"} <= non_empty_columns:
-        agg_expr = [pl.col("SourceSurfaceElevation").first(),
-                    (pl.col("SourceSurfaceElevation").count() > 1).alias("duplicated")]
         shot_elevations = headers.select(*shot_coords_cols, "SourceSurfaceElevation").unique(maintain_order=False)
-        shot_elevations = shot_elevations.groupby(shot_coords_cols).agg(agg_expr)
-        unique_shot_elevations = shot_elevations.select(*shot_coords_cols, "SourceSurfaceElevation").to_numpy()
-        n_duplicated = shot_elevations.select(pl.col("duplicated").sum()).item()
+        is_duplicated_expr = (pl.col("SourceSurfaceElevation").count() > 1).alias("duplicated")
+        is_duplicated = shot_elevations.groupby(shot_coords_cols).agg(is_duplicated_expr)
+        n_duplicated = is_duplicated.select(pl.col("duplicated").sum()).item()
         if n_duplicated:
             msg_list.append(f"Non-unique surface elevation (SourceSurfaceElevation) for {n_duplicated} source "
-                            f"locations ({(n_duplicated / len(unique_shot_elevations)):.2%})")
+                            f"locations ({(n_duplicated / len(is_duplicated)):.2%})")
 
     if {*rec_coords_cols, "ReceiverGroupElevation"} <= non_empty_columns:
-        agg_expr = [pl.col("ReceiverGroupElevation").first(),
-                    (pl.col("ReceiverGroupElevation").count() > 1).alias("duplicated")]
         rec_elevations = headers.select(*rec_coords_cols, "ReceiverGroupElevation").unique(maintain_order=False)
-        rec_elevations = rec_elevations.groupby(rec_coords_cols).agg(agg_expr)
-        unique_rec_elevations = rec_elevations.select(*rec_coords_cols, "ReceiverGroupElevation").to_numpy()
-        n_duplicated = rec_elevations.select(pl.col("duplicated").sum()).item()
+        is_duplicated_expr = (pl.col("ReceiverGroupElevation").count() > 1).alias("duplicated")
+        is_duplicated = rec_elevations.groupby(rec_coords_cols).agg(is_duplicated_expr)
+        n_duplicated = is_duplicated.select(pl.col("duplicated").sum()).item()
         if n_duplicated:
             msg_list.append(f"Non-unique surface elevation (ReceiverGroupElevation) for {n_duplicated} receiver "
-                            f"locations ({(n_duplicated / len(unique_rec_elevations)):.2%})")
+                            f"locations ({(n_duplicated / len(is_duplicated)):.2%})")
 
     if {*shot_coords_cols, *rec_coords_cols, "ReceiverGroupElevation", "SourceSurfaceElevation"} <= non_empty_columns:
-        elevations = np.concatenate([unique_shot_elevations, unique_rec_elevations]).astype(np.float32)
+        elevations = np.concatenate([shot_elevations.to_numpy(), rec_elevations.to_numpy()]).astype(np.float32)
         rnr = RadiusNeighborsRegressor(radius=elevation_radius).fit(elevations[:, :2], elevations[:, 2])
         close_mask = np.isclose(rnr.predict(elevations[:, :2]), elevations[:, 2], rtol=0, atol=elevation_atol)
         n_diff = (~close_mask).sum()
