@@ -26,8 +26,8 @@ def format_warnings(title, warning_list, width=80):
 
 def format_warning(warning_str, width=80):
     """Format a warning string by adding a separator before and after it."""
-    warning_sep = "\n\n" + "-" * width
-    return "".join([warning_sep, warning_str, warning_sep])
+    warning_sep = "-" * width
+    return "".join(["\n\n", warning_sep, "\n\n", warning_str, "\n\n", warning_sep])
 
 
 def isclose_polars(expr1, expr2, rtol=1e-5, atol=1e-8):
@@ -160,7 +160,7 @@ def _validate_trace_headers(headers, offset_atol=10, cdp_atol=10, elevation_atol
                             f"locations ({(n_duplicated / len(unique_rec_elevations)):.2%})")
 
     if {*shot_coords_cols, *rec_coords_cols, "ReceiverGroupElevation", "SourceSurfaceElevation"} <= non_empty_columns:
-        elevations = np.concatenate([unique_shot_elevations, unique_rec_elevations])
+        elevations = np.concatenate([unique_shot_elevations, unique_rec_elevations]).astype(np.float32)
         rnr = RadiusNeighborsRegressor(radius=elevation_radius).fit(elevations[:, :2], elevations[:, 2])
         close_mask = np.isclose(rnr.predict(elevations[:, :2]), elevations[:, 2], rtol=0, atol=elevation_atol)
         n_diff = (~close_mask).sum()
@@ -342,4 +342,4 @@ def validate_headers(headers, source_id_cols=None, receiver_id_cols=None, offset
     ]
     warning_list = [warn for warn in warning_list if warn is not None]
     if warning_list:
-        warnings.warn(format_warning("\n\n".join(warning_list), width=width), RuntimeWarning)
+        warnings.warn(format_warning("\n\n\n".join(warning_list), width=width), RuntimeWarning)
