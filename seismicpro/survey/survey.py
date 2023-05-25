@@ -21,9 +21,10 @@ from .headers_checks import validate_trace_headers, validate_source_headers, val
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
 from .utils import calculate_trace_stats
+from ..config import config
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
-from ..utils import to_list, maybe_copy, get_cols, get_first_defined
+from ..utils import to_list, maybe_copy, get_cols, get_first_defined, ForPoolExecutor
 from ..const import HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
@@ -102,6 +103,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     name : str, optional
         Survey name. If not given, source file name is used. This name is mainly used to identify the survey when it is
         added to an index, see :class:`~index.SeismicIndex` docs for more info.
+    sample_interval : float, optional
+        Sample interval of seismic traces in the source SEG-Y file. Inferred from binary and trace headers if not
+        given. Measured in milliseconds.
+    delay : float, optional, defaults to 0
+        Global delay recording time of seismic traces in the source SEG-Y file. Measured in milliseconds.
     limits : int or tuple or slice, optional
         Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
         used as arguments to init a `slice` object. If not given, whole traces are used. Measured in samples.
@@ -132,6 +138,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Recording time for each trace value. Measured in milliseconds.
     sample_interval : float
         Sample interval of seismic traces. Measured in milliseconds.
+    delay : float
+        Delay recording time of seismic traces. Measured in milliseconds.
     limits : slice
         Default time limits to be used during trace loading and survey statistics calculation. Measured in samples.
     source_id_cols : str or list of str or None
@@ -192,8 +200,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     # pylint: disable-next=too-many-arguments, too-many-statements
     def __init__(self, path, header_index, header_cols=None, source_id_cols=None, receiver_id_cols=None, name=None,
-                 limits=None, validate=True, engine="memmap", endian="big", chunk_size=25000, n_workers=None,
-                 bar=True):
+                 sample_interval=None, delay=0, limits=None, validate=True, engine="memmap", endian="big",
+                 chunk_size=25000, n_workers=None, bar=True):
         self.path = os.path.abspath(path)
         self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
@@ -231,13 +239,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if unknown_headers:
             raise ValueError(f"Unknown headers {', '.join(unknown_headers)}")
 
-        # Open the SEG-Y file
+        # Open the SEG-Y file and set samples-related attributes of the file
         self.loader = Loader(self.path, engine=engine, endian=endian, ignore_geometry=True)
+        sample_interval = get_first_defined(sample_interval, self.loader.sample_interval / 1000)
+        if sample_interval <= 0:
+            raise ValueError("Sample interval must be positive, please provide a valid sample_interval")
+        self.file_samples = self.create_samples(self.loader.n_samples, sample_interval, delay)
+        self.file_sample_interval = sample_interval
+        self.file_delay = delay
 
-        # Set samples and sample_rate according to passed `limits`.
+        # Set samples and sample_rate according to passed `limits`
         self.limits = None
         self.samples = None
         self.sample_interval = None
+        self.delay = None
         self.set_limits(limits)
 
         # Load trace headers and sort them by the required index in order to optimize further subsampling and merging.
@@ -291,28 +306,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     @property
     def file_sample_rate(self):
         """float: Sample rate of seismic traces in the source SEG-Y file. Measured in Hz."""
-        return self.loader.sample_rate
-
-    @property
-    def file_sample_interval(self):
-        """float: Sample interval of seismic traces in the source SEG-Y file. Measured in milliseconds."""
-        return self.loader.sample_interval
-
-    @property
-    def file_samples(self):
-        """1d np.ndarray of floats: Recording time for each trace value in the source SEG-Y file. Measured in
-        milliseconds."""
-        return self.loader.samples
+        return 1000 / self.file_sample_interval
 
     @property
     def n_file_samples(self):
         """int: Trace length in samples in the source SEG-Y file."""
         return len(self.file_samples)
-
-    @property
-    def sample_rate(self):
-        """float: Sample rate of seismic traces. Measured in Hz."""
-        return 1000 / self.sample_interval
 
     @property
     def n_sources(self):
@@ -350,6 +349,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         GatherContainer.headers.fset(self, headers)
         htp_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
         self.headers[HDR_TRACE_POS] = np.arange(self.n_traces, dtype=htp_dtype)
+
+    def __getstate__(self):
+        """Create pickling state of a survey from its `__dict__`. Don't pickle `headers` and `indexer` if
+        `enable_fast_pickling` config option is set."""
+        state = self.__dict__.copy()
+        if config["enable_fast_pickling"]:
+            state["_headers"] = None
+            state["_indexer"] = None
+        return state
 
     def __str__(self):
         """Print survey metadata including information about the source file, field geometry if it was inferred and
@@ -790,7 +798,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         chunk_weights = np.array(chunk_sizes, dtype=np.float64) / n_traces
 
         def collect_chunk_stats(i):
-            chunk = self.loader.load_traces(chunk_traces_pos[i], limits=limits)
+            chunk = self.load_traces(chunk_traces_pos[i], limits=limits)
             chunk_quantile_mask = chunk_quantile_traces_mask[i]
             if chunk_quantile_mask.any():
                 quantile_traces_buffer[i] = chunk[chunk_quantile_mask].ravel()
@@ -798,7 +806,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             return len(chunk)
 
         # Precompile njitted function to correctly initialize TBB from the main thread
-        _ = calculate_trace_stats(self.loader.load_traces([0], limits=limits).ravel())
+        _ = calculate_trace_stats(self.load_traces([0], limits=limits).ravel())
 
         # Accumulate min, max, mean and var values of traces chunks
         bar_desc = f"Calculating statistics for traces in survey {self.name}"
@@ -880,14 +888,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             The same survey with a new `DeadTrace` header created.
         """
         traces_pos = self["TRACE_SEQUENCE_FILE"] - 1
-        limits = self.loader.process_limits(get_first_defined(limits, self.limits))
-        n_samples = len(self.file_samples[limits])
-
+        limits, n_samples, _, _ = self._get_limits_info(get_first_defined(limits, self.limits))
         buffer = np.empty((1, n_samples), dtype=self.loader.dtype)
         dead_indices = []
         for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
                                   total=len(self.headers), disable=not bar):
-            trace = self.loader.load_traces([pos], limits=limits, buffer=buffer).ravel()
+            trace = self.load_traces([pos], limits=limits, buffer=buffer).ravel()
             trace_min, trace_max, *_ = calculate_trace_stats(trace)
 
             if math.isclose(trace_min, trace_max):
@@ -903,7 +909,62 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #                            Loading methods                             #
     #------------------------------------------------------------------------#
 
-    def load_gather(self, headers, limits=None, copy_headers=False):
+    def load_traces(self, indices, limits=None, buffer=None, chunk_size=None, n_workers=None,
+                    return_samples_info=False):
+        """Load seismic traces by their indices.
+
+        Parameters
+        ----------
+        indices : 1d array-like
+            Indices of the traces to read.
+        limits : int or tuple or slice or None, optional
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, `limits` passed to `__init__` are used. Measured in samples.
+        buffer : 2d np.ndarray, optional
+            Buffer to read the data into. Created automatically if not given.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
+        return_samples_info : bool
+            Whether to also return sample interval and delay recording time of loaded traces.
+
+        Returns
+        -------
+        traces : 2d np.ndarray
+            Loaded seismic traces.
+        sample_interval : float
+            Sample interval of loaded seismic traces. Returned only if `return_samples_info` is `True`.
+        delay : float
+            Delay recording time of loaded seismic traces. Returned only if `return_samples_info` is `True`.
+        """
+        if chunk_size is None:
+            chunk_size = len(indices)
+        n_chunks, last_chunk_size = divmod(len(indices), chunk_size)
+        chunk_sizes = [chunk_size] * n_chunks
+        if last_chunk_size:
+            n_chunks += 1
+            chunk_sizes += [last_chunk_size]
+        chunk_borders = np.cumsum([0] + chunk_sizes)
+
+        if n_workers is None:
+            n_workers = os.cpu_count()
+        n_workers = min(n_chunks, n_workers)
+        executor_class = ForPoolExecutor if n_workers == 1 else ThreadPoolExecutor
+
+        limits, n_samples, sample_interval, delay = self._get_limits_info(get_first_defined(limits, self.limits))
+        if buffer is None:
+            buffer = np.empty((len(indices), n_samples), dtype=self.loader.dtype)
+
+        with executor_class(max_workers=n_workers) as pool:
+            for start, end in zip(chunk_borders[:-1], chunk_borders[1:]):
+                pool.submit(self.loader.load_traces, indices[start:end], limits=limits, buffer=buffer[start:end])
+
+        if return_samples_info:
+            return buffer, sample_interval, delay
+        return buffer
+
+    def load_gather(self, headers, limits=None, copy_headers=False, chunk_size=None, n_workers=None):
         """Load a gather with given `headers`.
 
         Parameters
@@ -915,6 +976,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             given, `limits` passed to `__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the passed `headers` when instantiating the gather.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
 
         Returns
         -------
@@ -923,12 +988,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         if copy_headers:
             headers = headers.copy()
-        traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE") - 1
-        limits = get_first_defined(limits, self.limits)
-        data, samples = self.loader.load_traces(traces_pos, limits=limits, return_samples=True)
-        return Gather(headers=headers, data=data, samples=samples, survey=self)
+        indices = get_cols(headers, "TRACE_SEQUENCE_FILE") - 1
+        data, sample_interval, delay = self.load_traces(indices, limits=limits, chunk_size=chunk_size,
+                                                        n_workers=n_workers, return_samples_info=True)
+        return Gather(headers=headers, data=data, sample_interval=sample_interval, delay=delay, survey=self)
 
-    def get_gather(self, index, limits=None, copy_headers=False):
+    def get_gather(self, index, limits=None, copy_headers=False, chunk_size=None, n_workers=None):
         """Load a gather with given `index`.
 
         Parameters
@@ -940,15 +1005,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             given, `limits` passed to `__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the subset of survey `headers` describing the gather.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
 
         Returns
         -------
         gather : Gather
             Loaded gather instance.
         """
-        return self.load_gather(self.get_headers_by_indices((index,)), limits=limits, copy_headers=copy_headers)
+        return self.load_gather(self.get_headers_by_indices((index,)), limits=limits, copy_headers=copy_headers,
+                                chunk_size=chunk_size, n_workers=n_workers)
 
-    def sample_gather(self, limits=None, copy_headers=False):
+    def sample_gather(self, limits=None, copy_headers=False, chunk_size=None, n_workers=None):
         """Load a gather with random index.
 
         Parameters
@@ -958,13 +1028,18 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             given, `limits` passed to `__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the subset of survey `headers` describing the sampled gather.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
 
         Returns
         -------
         gather : Gather
             Loaded gather instance.
         """
-        return self.get_gather(index=np.random.choice(self.indices), limits=limits, copy_headers=copy_headers)
+        return self.get_gather(index=np.random.choice(self.indices), limits=limits, copy_headers=copy_headers,
+                               chunk_size=chunk_size, n_workers=n_workers)
 
     # pylint: disable=anomalous-backslash-in-string
     def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
@@ -1029,6 +1104,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #                       Survey processing methods                        #
     #------------------------------------------------------------------------#
 
+    def _get_limits_info(self, limits):
+        """Convert given `limits` to a `slice` and return it together with the number of samples, sample interval and
+        delay recording time these limits imply."""
+        limits = self.loader.process_limits(limits)
+        samples = self.file_samples[limits]
+        return limits, len(samples), self.file_sample_interval * limits.step, samples[0]
+
     def set_limits(self, limits):
         """Update default survey time limits that are used during trace loading and statistics calculation.
 
@@ -1037,7 +1119,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         limits : int or tuple or slice
             Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
             used as arguments to init a `slice`. The resulting object is stored in `self.limits` attribute and used to
-            recalculate `self.samples` and `self.sample_interval`. Measured in samples.
+            recalculate `self.samples`, `self.sample_interval` and `self.delay`. Measured in samples.
 
         Raises
         ------
@@ -1045,9 +1127,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             If negative step of limits was passed.
             If the resulting samples length is zero.
         """
-        self.limits = self.loader.process_limits(limits)
+        self.limits, _, self.sample_interval, self.delay = self._get_limits_info(limits)
         self.samples = self.file_samples[self.limits]
-        self.sample_interval = self.file_sample_interval * self.limits.step
 
     def remove_dead_traces(self, limits=None, inplace=False, bar=True):
         """ Remove dead (constant) traces from the survey.

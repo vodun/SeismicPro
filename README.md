@@ -101,18 +101,12 @@ Moreover, processing methods can be combined into compact pipelines like the one
 stacking_pipeline = (dataset
     .pipeline()
     .load(src="raw")
-    .sort(src="raw", by="offset")
     .mute(src="raw", dst="muted_raw", muter=muter)
-    .calculate_vertical_velocity_spectrum(src="muted_raw", dst="raw_spectrum",
-                                          velocities=SPECTRUM_VELOCITY_RANGE)
-    .calculate_stacking_velocity(src="raw_spectrum", dst="velocity",
-                                 start_velocity_range=START_VELOCITY_RANGE,
-                                 end_velocity_range=END_VELOCITY_RANGE,
-                                 n_times=N_TIMES, n_velocities=N_VELOCITIES)
+    .calculate_vertical_velocity_spectrum(src="muted_raw", dst="spectrum")
+    .calculate_stacking_velocity(src="spectrum", dst="velocity")
     .get_central_gather(src="raw")
-    .apply_nmo(src="raw", stacking_velocity="velocity")
-    .mute(src="raw", muter=muter)
-    .stack(src="raw")
+    .apply_nmo(src="raw", stacking_velocity="velocity", max_stretch_factor=0.35, mute_crossover=True)
+    .stack(src="raw", amplify_factor=0.2)
     .dump(src="raw", path=STACK_TRACE_PATH)
 )
 

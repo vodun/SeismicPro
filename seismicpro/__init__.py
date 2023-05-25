@@ -1,5 +1,6 @@
 """Core classes and functions of SeismicPro"""
 
+from .config import config
 from .dataset import SeismicDataset
 from .index import SeismicIndex
 from .batch import SeismicBatch

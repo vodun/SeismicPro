@@ -10,7 +10,7 @@ import numpy as np
 
 from seismicpro import Survey, aggregate_segys
 from seismicpro.const import HDR_TRACE_POS
-from .test_gather import compare_gathers
+from .test_gather import assert_gathers_equal
 
 
 @pytest.mark.parametrize('name', ['some_name', None])
@@ -33,8 +33,7 @@ def test_dump_single_gather(segy_path, tmp_path, name, retain_parent_segy_header
     drop_columns = ["TRACE_SEQUENCE_FILE", HDR_TRACE_POS]
     drop_columns += ["TRACE_SAMPLE_INTERVAL"] if "TRACE_SAMPLE_INTERVAL" in expected_gather.headers.columns else []
 
-    compare_gathers(expected_gather, dumped_gather, drop_cols=drop_columns, check_types=True,
-                    same_survey=False)
+    assert_gathers_equal(expected_gather, dumped_gather, drop_cols=drop_columns, same_survey=False)
 
     if retain_parent_segy_headers:
         expected_survey = Survey(segy_path, header_index=header_index, header_cols='all', validate=False)
@@ -104,5 +103,4 @@ def test_aggregate_segys(segy_path, tmp_path, mode, indices):
         expected_gather.sort(by='TraceNumber')
         dumped_gather = dumped_survey.get_gather(ix)
         dumped_gather.sort(by='TraceNumber')
-        compare_gathers(expected_gather, dumped_gather, drop_cols=drop_columns, check_types=True,
-                        same_survey=False)
+        assert_gathers_equal(expected_gather, dumped_gather, drop_cols=drop_columns, same_survey=False)

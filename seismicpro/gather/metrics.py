@@ -21,6 +21,9 @@ class SignalLeakage(PipelineMetric):
     def get_diff_gather(gather_before, gather_after):
         """Construct a new gather whose amplitudes are element-wise differences of amplitudes from `gather_after` and
         `gather_before`."""
+        if ((gather_before.shape != gather_after.shape) or (gather_before.delay != gather_after.delay) or
+            (gather_before.sample_interval != gather_after.sample_interval)):
+            raise ValueError("Both gathers should have the same shape and samples")
         gather_diff = gather_after.copy(ignore=["data", "headers", "samples"])
         gather_diff.data = gather_after.data - gather_before.data
         return gather_diff
