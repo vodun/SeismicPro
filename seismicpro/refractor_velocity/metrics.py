@@ -9,7 +9,7 @@ from scipy.signal import hilbert
 from ..gather.utils.normalization import scale_maxabs
 from ..gather.utils.correction import get_hodograph
 from ..metrics import Metric
-from ..utils import get_first_defined
+from ..utils import get_first_defined, set_ticks
 
 
 class RefractorVelocityMetric(Metric):
@@ -77,6 +77,15 @@ class RefractorVelocityMetric(Metric):
         views_list = [partial(self.plot_gather, sort_by=sort_by, threshold=threshold),
                       partial(self.plot_refractor_velocity)]
         return views_list, kwargs
+    
+    def binarize(self, gather, metric_values, threshold=None):
+        """Get binarized mask from metric_values."""
+        # Also handles self.is_lower_better=None case
+        invert_mask = -1 if self.is_lower_better is False else 1
+        mask_threshold = get_first_defined(threshold,
+                                           self.vmax if invert_mask == 1 else self.vmin,
+                                           metric_values.mean())
+        return {"masks": metric_values * invert_mask, "threshold": mask_threshold * invert_mask}
 
     def plot_gather(self, coords, ax, index, sort_by=None, threshold=None, mask=True, top_header=True, **kwargs):
         """Base view for gather plotting. Plot the gather by its index in bounded survey and its first breaks.
@@ -109,12 +118,7 @@ class RefractorVelocityMetric(Metric):
             refractor_velocity = self.field(gather.coords)
             metric_values = self.calc(gather=gather, refractor_velocity=refractor_velocity)
             if mask:
-                invert_mask = -1 if self.is_lower_better is False else 1
-                mask_threshold = get_first_defined(threshold,
-                                                   self.vmax if invert_mask == 1 else self.vmin,
-                                                   metric_values.mean())
-                plotting_kwargs['masks'] = {"masks": metric_values * invert_mask,
-                                            "threshold": mask_threshold * invert_mask}
+                plotting_kwargs['masks'] = self.binarize(gather, metric_values, threshold)
             if top_header:
                 plotting_kwargs["top_header"] = metric_values
         plotting_kwargs.update(kwargs)
@@ -310,26 +314,10 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         deltas = self.calc(gather, refractor_velocity)
         return np.mean(np.abs(deltas))
 
-    def plot_gather(self, coords, ax, index, sort_by=None, threshold=None, mask=True, top_header=True, **kwargs):
-        """Plot the gather with phase values at first break times above the seismogram
-        and highlight traces whose metric value differs from the target more than 90 degrees.
-        """
-        _ = coords
-        gather = self.survey.get_gather(index)
-        if sort_by is not None:
-            gather = gather.sort(by=sort_by)
-        plotting_kwargs = {"mode": "wiggle", "event_headers": self.first_breaks_col}
-        if top_header or mask:
-            metric_values = self.calc(gather=gather, refractor_velocity=None)
-            if top_header:
-                plotting_kwargs["top_header"] = metric_values
-            if mask:
-                metric_values = np.abs(metric_values)
-                mask_threshold = get_first_defined(threshold, self.vmax, metric_values.mean())
-                plotting_kwargs["masks"] = {"masks": metric_values, "threshold": mask_threshold}
-        plotting_kwargs.update(kwargs)
-        gather.plot(ax=ax, **plotting_kwargs)
-
+    def binarize(self, gather, metric_values, threshold):
+        """Get binarized mask from metric_values."""
+        _ = gather
+        super().binarize(gather, np.abs(metric_values), threshold)
 
 class FirstBreaksCorrelations(RefractorVelocityMetric):
     """Mean Pearson correlation coeffitient of trace with mean hodograph in window around the first break.
@@ -369,10 +357,10 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
     @njit(nogil=True)
     def _make_windows(times, data, offsets, window_size, sample_interval, delay):
         n_traces, n_samples = data.shape[0], ceil(window_size / sample_interval)
-        res = np.zeros((n_traces, n_samples), dtype=data.dtype)
-        for i, dt in enumerate(range(-window_size // 2, ceil(window_size / 2), int(1000 * sample_interval))):
-            res[:, i] = get_hodograph(data, offsets, times + dt, sample_interval, delay, interpolate=True,
-                                      fill_value=0, max_offset=np.inf, out=None)
+        res = np.empty((n_traces, n_samples), dtype=data.dtype)
+        for i in range(n_samples):
+            dt = -window_size // 2 + sample_interval * i
+            res[:, i] = get_hodograph(data, offsets, times + dt, sample_interval, delay, fill_value=np.nan)
         return res
 
     @staticmethod
@@ -382,19 +370,18 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         n_traces, n_samples = traces_windows.shape
         mean_hodograph = np.empty((1, n_samples), dtype=traces_windows.dtype)
         for i in range(n_samples):
-            mean_hodograph[:, i] = np.sum(traces_windows[:, i]) / (n_traces)
+            mean_hodograph[:, i] = np.nanmean(traces_windows[:, i])
         mean_hodograph_scaled = (mean_hodograph - np.mean(mean_hodograph)) / np.std(mean_hodograph)
 
-        mean_amplitudes = np.empty((n_traces, 1), dtype=traces_windows.dtype)
-        std_amplitudes = np.empty((n_traces, 1), dtype=traces_windows.dtype)
+        traces_windows_scaled = np.empty_like(traces_windows)
         for i in range(n_traces):
-            mean_amplitudes[i] = np.mean(traces_windows[i])
-            std_amplitudes[i] = np.std(traces_windows[i])
-        traces_windows_scaled = (traces_windows - mean_amplitudes) / std_amplitudes
+            trace_mean = np.nanmean(traces_windows[i])
+            trace_std = np.nanstd(traces_windows[i])
+            traces_windows_scaled[i] = (traces_windows[i] - trace_mean) / trace_std
 
         corrs = np.empty(n_traces, dtype=traces_windows.dtype)
         for i in range(n_traces):
-            corrs[i] = np.sum(traces_windows_scaled[i] * mean_hodograph_scaled) / n_samples
+            corrs[i] = np.nanmean(traces_windows_scaled[i] * mean_hodograph_scaled)
         return corrs
 
     def calc(self, gather, refractor_velocity):
@@ -434,36 +421,38 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
                 mask_threshold = get_first_defined(threshold, self.vmin, metric_values.mean())
                 plotting_kwargs["masks"] = {"masks": metric_values * -1, "threshold": mask_threshold * -1}
         traces_windows = self._make_windows(gather[self.first_breaks_col], gather.data, gather["offset"],
-                                            self.window_size, gather.sample_interval)
+                                            self.window_size, gather.sample_interval, gather.delay)
         gather.data = traces_windows
         plotting_kwargs.update(kwargs)
         gather.plot(ax=ax, **plotting_kwargs)
+        set_ticks(ax, axis="y", label="Time from first break, ms",
+                  num=min(self.window_size // int(gather.sample_interval), 9),
+                  major_labels=np.arange(-self.window_size // 2, self.window_size // 2 + 1, int(gather.sample_interval),
+                                         dtype=np.int32))
 
     def plot_mean_hodograph(self, coords, ax, index, **kwargs):
         """Plot mean trace in the scaled gather around the first break with length of the given window size."""
         _ = coords
         gather = self.survey.get_gather(index)
-        gather.scale_maxabs(clip=True)
         traces_windows = self._make_windows(gather[self.first_breaks_col], gather.data, gather["offset"],
                                             self.window_size, gather.sample_interval, gather.delay)
-        mean_hodograph = traces_windows.mean(axis=0)
+        mean_hodograph = np.nanmean(traces_windows, axis=0)
         mean_hodograph_scaled = ((mean_hodograph - mean_hodograph.mean()) / mean_hodograph.std()).reshape(1, -1)
         gather.data = mean_hodograph_scaled
 
         gather.plot(mode="wiggle", ax=ax, **kwargs)
-        ax.set_xlabel("Amplitude")
-        ax.set_xticks(ticks=[-1, 0, 1])
         fb_time_mean = np.mean(gather[self.first_breaks_col], dtype=np.int32)
-        ax.set_yticks(ticks=np.arange(self.window_size // gather.sample_interval + 1),
-                      labels=np.arange((fb_time_mean - self.window_size // 2),
-                                       (fb_time_mean + self.window_size // 2 + 1),
-                                        gather.sample_interval, dtype=np.int32))
-
+        set_ticks(ax, axis="x", label="Amplitude", num=3)
+        set_ticks(ax, axis="y", label="Time, ms",
+                  num=min(self.window_size // int(gather.sample_interval) + 1, 9),
+                  major_labels=np.arange((fb_time_mean - self.window_size // 2),
+                                         (fb_time_mean + self.window_size // 2 + 1),
+                                          int(gather.sample_interval), dtype=np.int32))
 
 class DivergencePoint(RefractorVelocityMetric):
     """The divergence point metric for first breaks.
     Find an offset after that first breaks are most likely to diverge from expected time.
-    Such an offset is defined as one with the maximum increase of outliers in between bins of `step` times.
+    Such an offset is defined as one with the maximum increase of outliers in between bins of `step` meters.
 
     Parameters
     ----------
@@ -502,16 +491,17 @@ class DivergencePoint(RefractorVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def _calc(times, rv_times, offsets, threshold_times, step):
+    def _calc(times, rv_times, offsets, outliers, step):
         """Calculate divergence offset for the gather."""
-        outliers = np.abs(rv_times - times) > threshold_times
-
         sorted_offsets_idx = np.argsort(offsets)
         sorted_offsets = offsets[sorted_offsets_idx]
         sorted_outliers = outliers[sorted_offsets_idx]
 
-        split_idxs = np.arange(step, len(offsets) - len(offsets) % step, step)
+        split_idxs = np.unique(np.searchsorted(sorted_offsets, 
+                                               np.arange(max(step, offsets.min()),
+                                                         offsets.max() - step, step), side='right'))
         outliers_splits = np.split(sorted_outliers, split_idxs)
+        outliers_splits = [split for split in outliers_splits if len(split) > 0]
         n_splits = len(outliers_splits)
 
         outliers_fractions = np.array([outliers_window.mean() for outliers_window in outliers_splits])
@@ -543,36 +533,34 @@ class DivergencePoint(RefractorVelocityMetric):
         offsets = gather["offset"]
         rv_times = refractor_velocity(offsets)
         outliers = np.abs(rv_times - times) > self.threshold_times
-        if np.mean(outliers) < self.tol or self.step >= len(offsets) - len(offsets) % self.step:
-            return offsets.max()
-        return self._calc(times, rv_times, offsets, self.threshold_times, self.step)
+        if np.mean(outliers) < self.tol or self.step >= offsets.max():
+            div_offset =  offsets.max()
+        else:
+            div_offset = self._calc(times, rv_times, offsets, outliers, self.step)
+        metric = np.empty_like(offsets)
+        metric.fill(div_offset)
+        return metric
 
-    def plot_gather(self, coords, ax, index, sort_by=None, threshold=None, mask=True, top_header=False, **kwargs):
-        """Plot the gather sorted by offset and highlight traces after divergence point."""
-        _ = coords, threshold
-        gather = self.survey.get_gather(index)
-        sort_by = "offset" if sort_by is None else sort_by
-        if sort_by is not None:
-            gather = gather.sort(by=sort_by)
-        plotting_kwargs = {"mode": "wiggle", "event_headers": self.first_breaks_col}
-        if top_header or mask:
-            refractor_velocity = self.field(gather.coords)
-            div_offset = self.calc(gather=gather, refractor_velocity=refractor_velocity)
-            metric_values = gather["offset"] >= div_offset
-            if top_header:
-                plotting_kwargs["top_header"] = metric_values
-            if mask:
-                plotting_kwargs["masks"] = {"masks": metric_values, "threshold": 1}
-        plotting_kwargs.update(kwargs)
-        gather.plot(ax=ax, **plotting_kwargs)
+    def binarize(self, gather, metric_values, threshold=None):
+        """Calculate whether traces are after the divergence offset."""
+        threshold = metric_values[0] + 1 if threshold is None else threshold
+        return {"masks": gather["offset"], "threshold": threshold}
+
+    def get_views(self, sort_by="offset", **kwargs):
+        """Return plotters of the metric views and add kwargs for `plot_gather` for interactive map plotting."""
+        return super().get_views(sort_by, **kwargs)
+
+    def plot_gather(self, *args, **kwargs):
+        """Plot the gather with highlighted traces after the divergence offset."""
+        kwargs["top_header"] = kwargs.pop("top_header", False)
+        super().plot_gather(*args, **kwargs)
 
     def plot_refractor_velocity(self, coords, ax, index, **kwargs):
         """Plot the refractor velocity curve, show the divergence offset
         and threshold area used for metric calculation."""
         gather = self.survey.get_gather(index)
         rv = self.field(coords)
-        divergence_offset = self._calc(gather[self.first_breaks_col], rv(gather['offset']),
-                                       gather["offset"], self.threshold_times, self.step)
+        divergence_offset = self.calc(gather, rv)[0]
         ax.axvline(x=divergence_offset, color="k", linestyle="--", label='divergence offset')
         title = f"Divergence point: {divergence_offset} m"
         kwargs["threshold_times"] = kwargs.pop("threshold_times", self.threshold_times)

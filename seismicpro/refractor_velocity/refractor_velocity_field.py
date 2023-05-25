@@ -635,17 +635,6 @@ class RefractorVelocityField(SpatialField):
         """
         FieldPlot(self, **kwargs).plot()
 
-    @staticmethod
-    def _calc_metrics(metrics, survey, field, gather_indices_chunk, coords_chunk):
-        """Calculate metrics for a given chunk of gather indices and a refractor velocity field."""
-        refractor_velocities = field(coords_chunk)
-        results = []
-        for idx, rv in zip(gather_indices_chunk, refractor_velocities):
-            gather = survey.get_gather(idx)
-            gather_results = [metric(gather, refractor_velocity=rv) for metric in metrics]
-            results.append(gather_results)
-        return results
-
     #pylint: disable-next=invalid-name
     def qc(self, metrics=None, survey=None, first_breaks_col=HDR_FIRST_BREAK, correct_uphole=None,
            n_workers=None, bar=True, chunk_size=250):
@@ -706,8 +695,20 @@ class RefractorVelocityField(SpatialField):
             n_workers = os.cpu_count()
         n_workers = min(n_chunks, n_workers)
 
+        @staticmethod
+        def _calc_metrics(metrics, survey, field, gather_indices_chunk, coords_chunk):
+            """Calculate metrics for a given chunk of gather indices and a refractor velocity field."""
+            refractor_velocities = field(coords_chunk)
+            results = []
+            for idx, rv in zip(gather_indices_chunk, refractor_velocities):
+                gather = survey.get_gather(idx)
+                gather_results = [metric(gather, refractor_velocity=rv) for metric in metrics]
+                results.append(gather_results)
+                return results
+
         executor_class = ForPoolExecutor if n_workers == 1 else ThreadPoolExecutor
         futures = []
+
         with tqdm(total=survey.n_gathers, desc="Gathers processed", disable=not bar) as pbar:
             with executor_class(max_workers=n_workers) as pool:
                 for i in range(n_chunks):
