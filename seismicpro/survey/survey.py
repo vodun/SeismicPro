@@ -12,12 +12,13 @@ import segyio
 import numpy as np
 import scipy as sp
 import pandas as pd
+import polars as pl
 from segfast import Loader
 from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
-from .headers_checks import validate_trace_headers, validate_source_headers, validate_receiver_headers
+from .headers_checks import validate_headers, validate_source_headers, validate_receiver_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
 from .utils import calculate_trace_stats
@@ -244,20 +245,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.delay = None
         self.set_limits(limits)
 
-        # Load trace headers and sort them by the required index in order to optimize further subsampling and merging.
-        # Sorting preserves trace order from the file within each gather.
+        # Load trace headers and check them for consistency
         pbar = partial(tqdm, desc="Trace headers loaded") if bar else False
         headers = self.loader.load_headers(headers_to_load, reconstruct_tsf=True, sort_columns=True,
                                            chunk_size=chunk_size, max_workers=n_workers, pbar=pbar)
+        if validate:
+            validate_headers(pl.from_pandas(headers, rechunk=False), source_id_cols, receiver_id_cols)
+
+        # Sort headers by the required index in order to optimize further subsampling and merging.
+        # Sorting preserves trace order from the file within each gather.
         headers.set_index(header_index, inplace=True)
         headers.sort_index(kind="stable", inplace=True)
         self._headers = None
         self._indexer = None
         self.headers = headers
-
-        # Validate trace headers for consistency
-        if validate:
-            self.validate_headers()
 
         # Define all stats-related attributes
         self.has_stats = False
@@ -437,6 +438,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         trace statistics if they were calculated."""
         print(self)
 
+    def get_polars_headers(self):
+        headers = self.headers.copy(deep=False)
+        headers.reset_index(inplace=True)
+        return pl.from_pandas(headers, rechunk=False)
+
     def set_source_id_cols(self, cols, validate=True):
         """Set new trace headers that uniquely identify a seismic source and optionally validate consistency of
         source-related trace headers by checking that each source has unique coordinates, surface elevation, uphole
@@ -444,9 +450,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if set(to_list(cols)) - self.available_headers:
             raise ValueError("Required headers were not loaded")
         if validate:
-            headers = self.headers.copy(deep=False)
-            headers.reset_index(inplace=True)
-            validate_source_headers(headers, cols)
+            validate_source_headers(self.get_polars_headers(), cols)
         self.source_id_cols = cols
 
     def set_receiver_id_cols(self, cols, validate=True):
@@ -455,9 +459,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if set(to_list(cols)) - self.available_headers:
             raise ValueError("Required headers were not loaded")
         if validate:
-            headers = self.headers.copy(deep=False)
-            headers.reset_index(inplace=True)
-            validate_receiver_headers(headers, cols)
+            validate_receiver_headers(self.get_polars_headers(), cols)
         self.receiver_id_cols = cols
 
     def validate_headers(self, offset_atol=10, cdp_atol=10, elevation_atol=5, elevation_radius=50):
@@ -499,12 +501,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         elevation_radius : int, optional, defaults to 50
             Radius of the neighborhood to estimate mean surface elevation.
         """
-        headers = self.headers.copy(deep=False)
-        headers.reset_index(inplace=True)
-        validate_trace_headers(headers, offset_atol=offset_atol, cdp_atol=cdp_atol, elevation_atol=elevation_atol,
-                               elevation_radius=elevation_radius)
-        validate_source_headers(headers, self.source_id_cols)
-        validate_receiver_headers(headers, self.receiver_id_cols)
+        validate_headers(self.get_polars_headers(), self.source_id_cols, self.receiver_id_cols,
+                         offset_atol=offset_atol, cdp_atol=cdp_atol, elevation_atol=elevation_atol,
+                         elevation_radius=elevation_radius)
 
     #------------------------------------------------------------------------#
     #                        Geometry-related methods                        #
