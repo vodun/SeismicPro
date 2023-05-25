@@ -34,7 +34,7 @@ setup(
         'opencv_python>=4.5.1',
         'rustworkx>=0.12.1',
         'segyio>=1.9.5',
-        'segfast>=1.0.0',
+        'segfast>=1.0.1',
         'tqdm>=4.56.0',
         'pytest>=6.0.1',
         'torch>=1.8',
