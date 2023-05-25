@@ -1234,6 +1234,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             else:
                 raise KeyError("INLINE_3D and CROSSLINE_3D headers must be loaded")
 
+        new_index = super_line_cols if reindex else self.indexed_by
         self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
         size = np.broadcast_to(size, 2)
         step = np.broadcast_to(step, 2)
@@ -1265,18 +1266,22 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if centers.ndim != 2 or centers.shape[1] != 2:
             raise ValueError("Passed centers must have shape (n_supergathers, 2)")
 
+        polars_headers = self.get_polars_headers()
+
         # Construct a bridge table with mapping from supergather centers to their bins
         shifts_grid = np.meshgrid(np.arange(size[0]) - size[0] // 2, np.arange(size[1]) - size[1] // 2)
         shifts = np.stack(shifts_grid, axis=-1).reshape(-1, 2)
         bridge = np.column_stack([centers.repeat(size.prod(), axis=0), (centers[:, None] + shifts).reshape(-1, 2)])
-        bridge = pd.DataFrame(bridge, columns=super_line_cols+line_cols)
-        bridge.set_index(line_cols, inplace=True)
+        bridge_schema = [
+            ("SUPERGATHER_INLINE_3D", polars_headers.schema["INLINE_3D"]),
+            ("SUPERGATHER_CROSSLINE_3D", polars_headers.schema["CROSSLINE_3D"]),
+            ("INLINE_3D", polars_headers.schema["INLINE_3D"]),
+            ("CROSSLINE_3D", polars_headers.schema["CROSSLINE_3D"]),
+        ]
+        bridge = pl.from_numpy(bridge, schema=bridge_schema, orient="row")
 
-        headers = self.headers.join(bridge, on=line_cols, how="inner")
-        if reindex:
-            headers.reset_index(inplace=True)
-            headers.set_index(super_line_cols, inplace=True)
-            headers.sort_index(kind="stable", inplace=True)
+        headers = polars_headers.join(bridge, on=line_cols, how="inner").sort(new_index).to_pandas()
+        headers.set_index(new_index, inplace=True)
         self.headers = headers
         return self
 
