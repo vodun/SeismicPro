@@ -58,8 +58,8 @@ def scale_standard(data, mean, std, eps):
         mean = np.empty((n_traces, 1), dtype=data.dtype)
         std = np.empty((n_traces, 1), dtype=data.dtype)
         for i in range(n_traces):
-            mean[i] = np.sum(data[i]) / (trace_len)
-            std[i] = np.sqrt((np.sum((data[i] - mean[i])**2) / trace_len))
+            mean[i] = np.nanmean(data[i])
+            std[i] = np.nanstd(data[i])
     return (data - mean) / (std + eps)
 
 @njit(nogil=True)

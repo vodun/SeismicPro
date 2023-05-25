@@ -434,14 +434,14 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             return self.survey.get_quantile(q)
-        q = np.atleast_1d(q).astype(np.float32)
+        q = np.array(q, dtype=np.float32)
         if not tracewise:
             quantiles = np.nanquantile(self.data, q=q)
         else:
-            quantiles = normalization.get_quantile(self.data, q=q)
-        # return the same type as q in case of non-global calculation: either single float or array-like
-        if q.ndim == 0:
-            quantiles = quantiles[0]
+            quantiles = normalization.get_quantile(self.data, q=np.atleast_1d(q))
+            # return the same type as q: either single float or array-like
+            if q.ndim == 0:
+                quantiles = quantiles[0]
         return quantiles.astype(self.data.dtype)
 
     @batch_method(target='threads')
@@ -486,8 +486,8 @@ class Gather(TraceContainer, SamplesContainer):
             mean = np.atleast_2d(np.array(self.survey.mean))
             std = np.atleast_2d(np.array(self.survey.std))
         elif not tracewise:
-            mean = np.mean(self.data, keepdims=True)
-            std = np.std(self.data, keepdims=True)
+            mean = np.nanmean(self.data, keepdims=True)
+            std = np.nanstd(self.data, keepdims=True)
         else:
             mean, std = None, None
         self.data = normalization.scale_standard(self.data, mean, std, np.float32(eps))
