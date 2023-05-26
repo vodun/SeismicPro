@@ -1299,7 +1299,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.headers = headers
         return self
 
-    def qc(self, metrics=None, chunk_size=1000, n_workers=None, bar=True, overwrite=False, verbose=False):  # pylint: disable=invalid-name
+    # pylint: disable-next=invalid-name
+    def qc(self, metrics=None, chunk_size=1000, n_workers=None, bar=True, overwrite=True, verbose=False):
         """Perform quality control of the traces in the survey.
 
         The following metrics are calculated for each trace by default:
@@ -1321,18 +1322,21 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Examples
         --------
-        Calculate several tracewise metrics:
-        1. Indicator of a dead trace:
-        >>> dead_trace = DeadTrace()
-        2. Spikes:
-        >>> spikes = Spikes(muter=muter)
-        Note that to create instance of `Spikes` metrics, you need to first define `muter`.
-        3. Two instances of window RMS for signal and noise parts of a trace:
-        >>> signal_metric = WindowRMS(offsets=[650, 2000], times=[1000, 1400], name="SignalWindowRMS")
-        >>> noise_metric = WindowRMS(offsets=[650, 2000], times=[100, 500], name="NoiseWindowRMS")
+        Define metrics to calculate:
+            - Indicator of a dead (constant) trace:
+            >>> dead_trace = DeadTrace()
+            - Spike indicator with required `muter` parameter:
+            >>> spikes = Spikes(muter=muter)
+            - Maximum absolute amplitude value divided by trace's std, note that a metric can be defined directly by
+              the metric class, not an instance:
+            >>> max_abs = TraceMaxAbs
+            - RMS in a window located in a signal zone with required window parameters and metric name:
+            >>> signal_rms = WindowRMS(offsets=[650, 2000], times=[1000, 1400], name="SignalWindowRMS")
+            - RMS in a window located in a noise zone with required parameters:
+            >>> noise_rms = WindowRMS(offsets=[650, 2000], times=[100, 500], name="NoiseWindowRMS")
 
-        To compute metric values, run the following command:
-        >>> survey.qc([dead_trace, spikes, signal_metric, noise_metric])
+        Compute provided metrics:
+        >>> survey.qc([dead_trace, spikes, max_abs, signal_rms, noise_rms])
 
         It is not necessary to define instance of tracewise metric. For metrics that do not have required arguments one
         may use only class name:
@@ -1340,24 +1344,24 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
-        metrics : :class:`~metrics.TracewiseMetric`, or list of :class:`~metrics.TracewiseMetric`, optional
+        metrics : TracewiseMetric or array-like of TracewiseMetric, optional
             Metrics to calculate. If `None`, metrics listed in `DEFAULT_TRACEWISE_METRICS` are calculated.
         chunk_size : int, optional, defaults to 1000
             Number of traces processed in one thread.
         n_workers : int, optional
-            The maximum number of simultaneously spawned threads to compute traces QC. Defaults to the number of cpu
+            The maximum number of simultaneously spawned threads to compute metrics. Defaults to the number of cpu
             cores.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
-        overwrite : bool, optional, defaults to False
-            Whether to rewrite metrics that were previously calculated or raise an exception.
+        overwrite : bool, optional, defaults to True
+            Whether to rewrite metrics that were previously calculated or skip them.
         verbose : bool, optional, defaults to False
             Whether to print QC results.
 
         Returns
         -------
         Survey
-            Survey with metrics written to headers and filled `self.qc_metrics` dict.
+            Survey with metrics stored in `self.qc_metrics` and metrics values in `self.headers`.
 
         Raises
         ------
@@ -1372,8 +1376,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if overwrite_metric:
             msg = ', '.join(overwrite_metric)
             if not overwrite:
-                raise ValueError(f"{msg} already calculated. Use `overwrite=True` or rename it.")
-            warnings.warn(f'{msg} already calculated and will be rewritten.')
+                metrics = [metric for metric in metrics if metric.name not in self.qc_metrics]
+                if not len(metrics):
+                    warnings.warn("All metrics already calculated. Use `overwrite=True` to recalculate them.")
+                    return self
+            else:
+                warnings.warn(f"{msg} already calculated and will be rewritten.")
 
         n_chunks = self.n_traces // chunk_size + (1 if self.n_traces % chunk_size else 0)
         if n_workers is None:
@@ -1393,7 +1401,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 results.update(zip(to_list(header_cols), np.atleast_2d(metric(gather))))
             return pd.DataFrame(results)
 
-        # Precompile all numba decorated metrics to avoid hanging of the ThreadPoolExecutor upon the first call
+        # Precompile all njit decorated metrics to avoid hanging of the ThreadPoolExecutor upon the first call
         _ = calc_metrics([0])
 
         futures = []
@@ -1572,7 +1580,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return tmp_map.metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)
 
     def construct_qc_maps(self, metric_names=None, by=None, id_cols=None, agg=None, bin_size=None):
-        """Construct a map of tracewise metric values aggregated by gathers.
+        """Construct a metric map of tracewise metric values aggregated by gathers.
 
         A ratio of any two RMS metrics may be calculated by passing their names separated by `/` in `metric_names`,
         which allows displaying more complex metrics such as signal-to-noise ratio by gather. By default, RMS
@@ -1582,33 +1590,39 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Examples
         --------
-        Define and compute three tracewise metrics:
-        1. Maximum absolute amplitude value divided by trace's std:
-        >>> maxabs_metric = TraceMaxAbs
-        2. RMS in a signal part of the trace:
-        >>> signal_metric = WindowRMS(offsets=[650, 2000], times=[1000, 1400], name="SignalWindowRMS")
-        3. RMS in a noise part of the trace:
-        >>> noise_metric = WindowRMS(offsets=[650, 2000], times=[100, 500], name="NoiseWindowRMS")
-        >>> survey.qc([TraceMaxAbs, signal_metric, noise_metric])
+        Define metrics to calculate:
+            - Maximum absolute amplitude value divided by trace's std:
+            >>> max_abs = TraceMaxAbs
+            - RMS in a window located in a signal zone:
+            >>> signal_rms = WindowRMS(offsets=[650, 2000], times=[1000, 1400], name="SignalWindowRMS")
+            - RMS in a window located in a noise zone:
+            >>> noise_rms = WindowRMS(offsets=[650, 2000], times=[100, 500], name="NoiseWindowRMS")
 
-        Construct a map of metric with name `TraceMaxAbs` by shots with `max` aggregation:
-        >>> qc_map = survey.construct_qc_maps(metric_names="TraceMaxAbs", by="shot", agg="max")
+        Compute provided metrics:
+        >>> survey.qc([max_abs, signal_rms, noise_rms])
 
-        Construct a signal-to-noise ratio map by shots:
-        >>> ratio_qc_map = survey.construct_qc_maps(metric_names="SignalWindowRMS/NoiseWindowRMS", by="shot")
+        Construct a metric map of:
+            - metric with name `TraceMaxAbs` by shots with `max` aggregation:
+            >>> qc_map = survey.construct_qc_maps(metric_names="TraceMaxAbs", by="shot", agg="max")
 
-        Calculate signal RMS values for each trace and then aggregate them by shots:
-        >>> tracewise_qc_map = survey.construct_qc_maps(metric_names={"metric": "SignalWindowRMS", "tracewise":True},
-                                                        by="shot")
+            - tracewise signal RMS aggregated by shots:
+            >>> tracewise_qc_map = survey.construct_qc_maps(metric_names={"metric": "SignalWindowRMS",
+                                                                          "tracewise":True}, by="shot")
+            - signal-to-noise ratio map by shots:
+            >>> ratio_qc_map = survey.construct_qc_maps(metric_names="SignalWindowRMS/NoiseWindowRMS", by="shot")
 
         Plot the map of the first metric:
         >>> qc_map.plot()
 
         The map allows for interactive plotting: a gather type defined by `by` with a tracewise metric value on top of
         the gather plot will be displayed on click on the map. Depending on the metric, other arguments may be passed
-        to the gather plot. See `metric.plot()` for avalible arguments. In this example, the gather will be sorted by
+        to the metric plot. See `metric.plot()` for avalible arguments. In this example, the gather will be sorted by
         `offset` and the default threshold for the metric will be changed to 20:
         >>> qc_map.plot(interactive=True, threshold=20, sort_by="offset")
+
+        The map in interactive mode also allows to pass arguments for a gather plot. In this example, the gather will
+        be plotted in `seismogram` mode:
+        >>> qc_map.plot(interactive=True, plot_on_click_kwargs={"mode": "seismogram"})
 
         Parameters
         ----------

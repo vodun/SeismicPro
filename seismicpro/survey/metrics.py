@@ -85,7 +85,7 @@ class TracewiseMetric(SurveyAttribute):
             warnings.simplefilter("ignore", category=RuntimeWarning)
             gather = self.preprocess(gather)
             values = self.get_values(gather)
-        return self.aggregate(values)
+            return self.aggregate(values)
 
     @property
     def description(self):
@@ -311,7 +311,7 @@ class TraceAbsMean(TracewiseMetric):
 
 
 class TraceMaxAbs(TracewiseMetric):
-    """Find a maximum absolute amplitude value scaled by trace's std.
+    """Find a maximum absolute amplitude value divided by trace's std.
 
     `get_values` returns 1d array with computed metric values for the gather.
     """
