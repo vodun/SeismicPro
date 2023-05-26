@@ -77,9 +77,10 @@ class RefractorVelocityMetric(Metric):
         views_list = [partial(self.plot_gather, sort_by=sort_by, threshold=threshold),
                       partial(self.plot_refractor_velocity)]
         return views_list, kwargs
-    
+
     def binarize(self, gather, metric_values, threshold=None):
         """Get binarized mask from metric_values."""
+        _ = gather
         # Also handles self.is_lower_better=None case
         invert_mask = -1 if self.is_lower_better is False else 1
         mask_threshold = get_first_defined(threshold,
@@ -311,7 +312,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         deltas = self.calc(gather, refractor_velocity)
         return np.mean(np.abs(deltas))
 
-    def binarize(self, gather, metric_values, threshold):
+    def binarize(self, gather, metric_values, threshold=None):
         """Get binarized mask from metric_values."""
         _ = gather
         super().binarize(gather, np.abs(metric_values), threshold)
@@ -488,13 +489,13 @@ class DivergencePoint(RefractorVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def _calc(times, rv_times, offsets, outliers, step):
+    def _calc(offsets, outliers, step):
         """Calculate divergence offset for the gather."""
         sorted_offsets_idx = np.argsort(offsets)
         sorted_offsets = offsets[sorted_offsets_idx]
         sorted_outliers = outliers[sorted_offsets_idx]
 
-        split_idxs = np.unique(np.searchsorted(sorted_offsets, 
+        split_idxs = np.unique(np.searchsorted(sorted_offsets,
                                                np.arange(max(step, offsets.min()),
                                                          offsets.max() - step, step), side='right'))
         outliers_splits = np.split(sorted_outliers, split_idxs)
@@ -533,7 +534,7 @@ class DivergencePoint(RefractorVelocityMetric):
         if np.mean(outliers) < self.tol or self.step >= offsets.max():
             div_offset =  offsets.max()
         else:
-            div_offset = self._calc(times, rv_times, offsets, outliers, self.step)
+            div_offset = self._calc(offsets, outliers, self.step)
         metric = np.empty_like(offsets)
         metric.fill(div_offset)
         return metric

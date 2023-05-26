@@ -54,7 +54,7 @@ def scale_standard(data, mean, std, eps):
         Scaled data with unchanged shape.
     """
     if mean is None and std is None:
-        n_traces, trace_len = data.shape
+        n_traces = data.shape[0]
         mean = np.empty((n_traces, 1), dtype=data.dtype)
         std = np.empty((n_traces, 1), dtype=data.dtype)
         for i in range(n_traces):

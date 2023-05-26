@@ -648,10 +648,10 @@ class RefractorVelocityField(SpatialField):
 
         Parameters
         ----------
-        survey : Survey, optional
-            Survey to load traces from. Defaults to a survey the field is linked to.
         metrics : instance or subclass of :class:`~metrics.RefractorVelocityMetric` of list of them, optional.
             Metrics to calculate. Defaults to those defined in `~metrics.REFRACTOR_VELOCITY_QC_METRICS`.
+        survey : Survey, optional
+            Survey to load traces from. Defaults to a survey the field is linked to.
         first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `survey.headers` where times of first break are stored.
         correct_uphole : bool, optional
