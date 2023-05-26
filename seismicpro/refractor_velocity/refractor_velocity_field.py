@@ -645,8 +645,6 @@ class RefractorVelocityField(SpatialField):
         * Mean amplitude of the signal in the moment of first break,
         * Mean absolute deviation of the signal phase from target value in the moment of first break,
         * Mean Pearson correlation coefficient of trace with mean hodograph in window around the first break,
-        * The divergence point metric for first breaks. Intended to find an offset after that first breaks are most
-        likely to diverge from expected time.
 
         Parameters
         ----------
@@ -695,27 +693,24 @@ class RefractorVelocityField(SpatialField):
             n_workers = os.cpu_count()
         n_workers = min(n_chunks, n_workers)
 
-        @staticmethod
-        def _calc_metrics(metrics, survey, field, gather_indices_chunk, coords_chunk):
-            """Calculate metrics for a given chunk of gather indices and a refractor velocity field."""
-            refractor_velocities = field(coords_chunk)
+        def calc_metrics(gather_indices_chunk, coords_chunk):
+            """Calculate metrics for a given chunk of gather indices."""
+            refractor_velocities = self(coords_chunk)
             results = []
             for idx, rv in zip(gather_indices_chunk, refractor_velocities):
                 gather = survey.get_gather(idx)
-                gather_results = [metric(gather, refractor_velocity=rv) for metric in metrics]
+                gather_results = [metric(gather, refractor_velocity=rv) for metric in metrics_instances]
                 results.append(gather_results)
-                return results
+            return results
 
         executor_class = ForPoolExecutor if n_workers == 1 else ThreadPoolExecutor
         futures = []
-
         with tqdm(total=survey.n_gathers, desc="Gathers processed", disable=not bar) as pbar:
             with executor_class(max_workers=n_workers) as pool:
                 for i in range(n_chunks):
                     gathers_indices_chunk = survey.indices[i * chunk_size : (i + 1) * chunk_size]
                     coords_chunk = gather_coords[i * chunk_size : (i + 1) * chunk_size]
-                    future = pool.submit(self._calc_metrics, metrics_instances, survey, self, gathers_indices_chunk,
-                                         coords_chunk)
+                    future = pool.submit(calc_metrics, gathers_indices_chunk, coords_chunk)
                     future.add_done_callback(lambda fut: pbar.update(len(fut.result())))
                     futures.append(future)
         results = sum([future.result() for future in futures], [])

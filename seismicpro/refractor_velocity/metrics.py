@@ -90,9 +90,8 @@ class RefractorVelocityMetric(Metric):
     def plot_gather(self, coords, ax, index, sort_by=None, threshold=None, mask=True, top_header=True, **kwargs):
         """Base view for gather plotting. Plot the gather by its index in bounded survey and its first breaks.
         By default also recalculates metric in order to display `top_header` with metric values above gather traces
-        and masks traces with metric greater than threshold. 
-        Threshold is either acquired from `threshold` argument if given, metric's colorbar margin if defined,
-        or simply by mean metric value.
+        and mask traces according to threshold. Threshold is either acquired from `threshold` argument if given,
+        metric's colorbar margin if defined, or simply by mean metric value.
 
         Parameters
         ----------
@@ -112,8 +111,7 @@ class RefractorVelocityMetric(Metric):
         gather = self.survey.get_gather(index)
         if sort_by is not None:
             gather = gather.sort(by=sort_by)
-        plotting_kwargs = {"mode": "wiggle",
-                           "event_headers": self.first_breaks_col}
+        plotting_kwargs = {"mode": "wiggle", "event_headers": self.first_breaks_col}
         if top_header or mask:
             refractor_velocity = self.field(gather.coords)
             metric_values = self.calc(gather=gather, refractor_velocity=refractor_velocity)
@@ -231,8 +229,7 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
         """Calculate signal amplitudes at first break times."""
         gather_data = scale_maxabs(gather_data, min_value=None, max_value=None, q_min=0, q_max=1,
                                    clip=False, eps=1e-10)
-        return get_hodograph(gather_data, offsets, picking_times, sample_interval, delay, interpolate=True,
-                             fill_value=0, max_offset=np.inf, out=None)
+        return get_hodograph(gather_data, offsets, picking_times, sample_interval, delay, fill_value=0)
 
     def calc(self, gather, refractor_velocity):
         """Return signal amplitudes at first break times.
@@ -477,7 +474,7 @@ class DivergencePoint(RefractorVelocityMetric):
     name = "divergence_point"
     is_lower_better = False
 
-    def __init__(self, threshold_times=50, step=100, tol=1e-2, first_breaks_col=None, correct_uphole=None, name=None):
+    def __init__(self, threshold_times=50, step=100, tol=0.1, first_breaks_col=None, correct_uphole=None, name=None):
         super().__init__(first_breaks_col, correct_uphole, name)
         self.threshold_times = threshold_times
         self.step = step
@@ -567,4 +564,4 @@ class DivergencePoint(RefractorVelocityMetric):
         super().plot_refractor_velocity(coords, ax, index, title=title, **kwargs)
 
 REFRACTOR_VELOCITY_QC_METRICS = [FirstBreaksOutliers, FirstBreaksPhases, FirstBreaksCorrelations,
-                                 FirstBreaksAmplitudes, DivergencePoint]
+                                 FirstBreaksAmplitudes]
