@@ -206,8 +206,8 @@ def test_gather_scale_maxabs(gather, tracewise, use_global):
 
 def test_gather_mask_to_pick_and_pick_to_mask(gather):
     """test_gather_mask_to_pick"""
-    mask = gather.pick_to_mask(first_breaks_col=HDR_FIRST_BREAK)
-    mask.mask_to_pick(first_breaks_col=HDR_FIRST_BREAK, save_to=gather)
+    mask = gather.pick_to_mask(first_breaks_header=HDR_FIRST_BREAK)
+    mask.mask_to_pick(first_breaks_header=HDR_FIRST_BREAK, save_to=gather)
 
 @pytest.mark.parametrize('by', ('offset', ['FieldRecord', 'offset']))
 def test_gather_sort(gather, by):
