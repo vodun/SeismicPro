@@ -169,7 +169,7 @@ class Gather(TraceContainer, SamplesContainer):
         # Split key into indexers of traces and samples
         key = (key,) if not isinstance(key, tuple) else key
         key = key + (slice(None),) if len(key) == 1 else key
-        if len(key) != 2 or None in key:
+        if len(key) != 2 or any(indexer is None for indexer in key):
             raise KeyError("Data ndim must not change")
         traces_indexer, samples_indexer = key
 
