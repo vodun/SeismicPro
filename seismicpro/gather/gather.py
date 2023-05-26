@@ -165,11 +165,12 @@ class Gather(TraceContainer, SamplesContainer):
         # If key is str or array of str, treat it as names of headers columns
         if all(isinstance(item, str) for item in to_list(key)):
             return super().__getitem__(key)
-
+    
         # Split key into indexers of traces and samples
         key = (key,) if not isinstance(key, tuple) else key
         key = key + (slice(None),) if len(key) == 1 else key
-        if len(key) != 2 or None in key:
+
+        if len(key) != 2:# or None in key:
             raise KeyError("Data ndim must not change")
         traces_indexer, samples_indexer = key
 
@@ -378,7 +379,8 @@ class Gather(TraceContainer, SamplesContainer):
 
         sample_interval = np.int32(self.sample_interval * 1000) # Convert to microseconds
         # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
-        trace_ids = self["TRACE_SEQUENCE_FILE"] - 1
+        if retain_parent_segy_headers:
+            trace_ids = self["TRACE_SEQUENCE_FILE"] - 1
 
         # Keep only headers, defined by SEG-Y standard.
         used_header_names = self.available_headers & set(segyio.tracefield.keys)
@@ -948,10 +950,12 @@ class Gather(TraceContainer, SamplesContainer):
         mask = (0 < f) & (f < fmax)
         A = A[mask]
         f = f[mask]
-        A = np.abs(A)
-        A = np.where(A.max(axis=1, keepdims=True) != 0, A / A.max(axis=1, keepdims=True), 0)
+        power = np.abs(A)
 
-        ss.velocity_spectrum = A
+        power_max = np.nansum(power ** 2, axis=1, keepdims=True) ** 0.5
+        power = np.where(power_max != 0, power / power_max, 0)
+
+        ss.velocity_spectrum = power
         ss.times = f
         return ss
 
@@ -962,9 +966,9 @@ class Gather(TraceContainer, SamplesContainer):
 
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_bf(self, velocities, fmax=None, weighting='sqrt', steering="cylindrical"):
+    def calculate_bf(self, velocities, fmax=None, weighted=False, cylindrical=True):
         from ..velocity_spectrum.velocity_spectrum import BeamFormer
-        return BeamFormer(self, velocities, fmax=fmax)
+        return BeamFormer(self, velocities, fmax=fmax, weighted=weighted, cylindrical=cylindrical)
 
 
     #------------------------------------------------------------------------#

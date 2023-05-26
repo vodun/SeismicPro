@@ -85,7 +85,7 @@ class BaseVelocitySpectrum(SamplesContainer):
         else:
             return self.gather.times  # ms
 
-    @times.setter
+    @samples.setter
     def times(self, values):
         self._times = values
 
@@ -792,14 +792,18 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
 
 class SlantStack(VerticalVelocitySpectrum):
 
+    # @staticmethod
+    # @njit(nogil=True, fastmath=True, parallel=True)
+    # def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_interval,
+    #                                    half_win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf, out=None):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_interval,
-                                       half_win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf, out=None):
+    def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_interval, delay,
+                                half_win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf, out=None):
         t_win_size_min_ix = max(0, t_min_ix - half_win_size_samples)
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + half_win_size_samples)
 
-        corrected_gather_data = apply_lmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1], offsets, velocity, sample_interval)
+        corrected_gather_data = apply_lmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1], offsets, velocity, sample_interval, delay)
 
         numerator, denominator = coherency_func(corrected_gather_data)
 
@@ -822,8 +826,8 @@ class SlantStack(VerticalVelocitySpectrum):
 
 
 class EmptySpectrum(VerticalVelocitySpectrum):
-
-    def __init__(self, gather, velocities, f, spectrum):
+    
+    def __init__(self, gather, velocities, f, spectrum, title=None):
         self.gather = gather
         self.velocity_spectrum = spectrum
         self.velocities = velocities
@@ -831,9 +835,11 @@ class EmptySpectrum(VerticalVelocitySpectrum):
         self.max_stretch_factor = 1
         self.coherency_func = COHERENCY_FUNCS.get('NE')
         self._times = f
+        self.title = title
 
     def _plot(self, *args, **kwargs):
         """Plot vertical velocity spectrum."""
+        kwargs['title'] = self.title
         super()._plot(*args, **kwargs)
 
 
@@ -858,6 +864,9 @@ def ps(velocities, frequencies, offsets, fft):
 
 
 class PhaseShist(EmptySpectrum):
+
+    title = 'PhaseShift'
+
     def __init__(self, gather, velocities, fmax=None):
         N = gather.n_samples
         A = np.fft.fft(gather.data)[:, :N // 2]
@@ -868,8 +877,8 @@ class PhaseShist(EmptySpectrum):
         f = f[f < fmax]
         power = ps(velocities, f, gather.offsets, A)
 
-        #power_max = np.nanmax(power, axis=1, keepdims=True)
-        #power = np.where(power_max != 0, power / power_max, 0)
+        power_max = np.nansum(power ** 2, axis=0, keepdims=True) ** 0.5
+        power = np.where(power_max != 0, power / power_max, 0)
     
         super().__init__(gather, velocities, f, power.T)
     
@@ -879,16 +888,25 @@ from tqdm import tqdm
 from .utils.bessel import j0, y0
 
 @njit(parallel=True)
-def fdbf(fft, velocities, frequencies, offsets):
+def fdbf(fft, velocities, frequencies, offsets, cylindrical=False, weighted=False):
     power = np.empty((len(frequencies), len(velocities)), dtype=np.complex128)
     k = 2 * np.pi * frequencies.reshape(-1, 1) / velocities.reshape(1, -1)
-    for i in prange(len(frequencies)):
+    NF = len(frequencies)
+
+    for i in prange(NF):
         for j in range(len(velocities)):
             kx = k[i, j] * offsets
-            h0_kx = j0(kx) + 1j * y0(kx)
-            angle_kx = -1j * np.angle(h0_kx)
-            steer = np.exp(angle_kx).reshape(1, -1)
+            if cylindrical:
+                h0_kx = j0(kx) + 1j * y0(kx)
+                angle_kx = np.angle(h0_kx)
+                steer = np.exp(-1j * angle_kx).reshape(1, -1)
+            else:
+                steer = np.exp(-1j * kx).reshape(1, -1)
 
+            if weighted:
+                w = (offsets.reshape(1, -1) ** (2 - 4 * i / (NF - 1)))
+                steer = w * steer
+        
             HS = np.conjugate(steer) @ fft[:, i]
             power[i, j] = (HS * np.conjugate(HS)).item()
 
@@ -896,7 +914,9 @@ def fdbf(fft, velocities, frequencies, offsets):
 
 class BeamFormer(EmptySpectrum):
 
-    def __init__(self, gather, velocities, fmax=None, weighting='sqrt', steering="cylindrical"):
+    title = 'BeamFormer'
+
+    def __init__(self, gather, velocities, fmax=None, weighted=False, cylindrical=True):
         frequencies = np.fft.fftfreq(gather.n_samples, gather.sample_interval / 1000)
         fft = np.fft.fft(gather.data)
     
@@ -905,9 +925,12 @@ class BeamFormer(EmptySpectrum):
         frequencies = frequencies[mask]
         fft = fft[:, mask]
 
-        power = fdbf(fft, velocities, frequencies, gather.offsets)
+        w = 1 / gather.offsets.reshape(-1, 1) ** 0.5
+        fft = fft * w
+        power = fdbf(fft, velocities, frequencies, gather.offsets.astype(np.float32), cylindrical, weighted)
         power = np.abs(power)
-        power_max = np.nanmax(power, axis=1, keepdims=True)
+    
+        power_max = np.nansum(power ** 2, axis=1, keepdims=True) ** 0.5
         power = np.where(power_max != 0, power / power_max, 0)
 
         super().__init__(gather, velocities, frequencies, power)
@@ -920,11 +943,11 @@ def compute_linear_hodograph_times(offsets, times, velocities):
 
 from ..gather.utils.correction import get_hodograph
 @njit(nogil=True, parallel=True)
-def apply_lmo(gather_data, times, offsets, stacking_velocities, sample_interval, fill_value=np.nan):
+def apply_lmo(gather_data, times, offsets, stacking_velocities, sample_interval, delay, fill_value=0):
     corrected_gather_data = np.full_like(gather_data, fill_value=fill_value)
     hodograph_times = compute_linear_hodograph_times(offsets, times, stacking_velocities)
     for i in prange(times.shape[0]):
-        get_hodograph(gather_data, offsets, hodograph_times[i], sample_interval, fill_value=fill_value, out=corrected_gather_data[:, i])
+        get_hodograph(gather_data, offsets, hodograph_times[i], sample_interval, delay, fill_value=fill_value, out=corrected_gather_data[:, i])
     return corrected_gather_data
 
 
