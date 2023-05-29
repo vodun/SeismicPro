@@ -4,7 +4,6 @@ from .stacking_velocity import StackingVelocity
 
 
 # Custom headers optionally added by SeismicPro to those from SEG-Y file
-HDR_DEAD_TRACE = 'DeadTrace'
 HDR_FIRST_BREAK = 'FirstBreak'
 HDR_TRACE_POS = 'TRACE_POS_IN_SURVEY'
 

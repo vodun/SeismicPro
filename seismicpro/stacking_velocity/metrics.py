@@ -123,7 +123,6 @@ class StackingVelocityMetric(Metric):
 
 class HasInversions(StackingVelocityMetric):
     """Check if a stacking velocity decreases at some time."""
-    name = "has_inversions"
     min_value = 0
     max_value = 1
     is_lower_better = True
@@ -154,7 +153,6 @@ class HasInversions(StackingVelocityMetric):
 
 class MaxAccelerationDeviation(StackingVelocityMetric):
     """Calculate maximal absolute deviation of instantaneous acceleration from the mean acceleration over all times."""
-    name = "max_acceleration_deviation"
     min_value = 0
     max_value = None
     is_lower_better = None
@@ -183,7 +181,6 @@ class MaxAccelerationDeviation(StackingVelocityMetric):
 
 class MaxStandardDeviation(StackingVelocityMetric):
     """Calculate maximal spatial velocity standard deviation in a window over all times."""
-    name = "max_standard_deviation"
     min_value = 0
     max_value = None
     is_lower_better = True
@@ -207,7 +204,6 @@ class MaxStandardDeviation(StackingVelocityMetric):
 class MaxRelativeVariation(StackingVelocityMetric):
     """Calculate maximal absolute relative difference between central stacking velocity and the average of all
     remaining velocities in the window over all times."""
-    name = "max_relative_variation"
     min_value = 0
     max_value = None
     is_lower_better = True

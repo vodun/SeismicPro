@@ -92,6 +92,11 @@ def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, v
     If stacking velocity was properly picked, the reflection events on a corrected CDP gather are mostly flattened
     across the offset range.
 
+    Gather data is additionally muted after NMO correction:
+    * Areas where time reversal occurred after correction are always muted,
+    * Stretch muting may optionally be performed if `max_stretch_factor` is given.
+    In order to calculate gather samples to mute, velocity gradient at given `times` must be provided.
+
     Parameters
     ----------
     gather_data : 2d np.ndarray
@@ -108,8 +113,8 @@ def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, v
         Stacking velocities for each zero-offset traveltime. Must match the shape of `times`.
         Measured in meters/milliseconds.
     velocities_grad : 1d np.ndarray
-        Gradient of stacking velocities for each zero-offset traveltime. Must match the shape of `times`.
-        Measured in meters/milliseconds^2.
+        Gradient of stacking velocities for each zero-offset traveltime. Must match the shape of `times`. Used to
+        calculate which gather samples to mute after correction. Measured in meters/milliseconds^2.
     max_stretch_factor : float, optional, defaults to np.inf
         Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO correction.
         The lower the value, the stronger the mute. In case np.inf (default) only areas where time reversal occurred
@@ -132,8 +137,9 @@ def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, v
     for i in prange(len(times)):
         hodograph_times[i] = np.sqrt(times[i]**2 + (offsets / velocities[i])**2)
         corrected_t0 = times[i] - offsets**2 * velocities_grad[i] / velocities[i]**3
-        stretch_mask = (corrected_t0 <= 0) | (hodograph_times[i] > (1 + max_stretch_factor) * corrected_t0)
-        muted_offsets = offsets[stretch_mask]
+        crossover_mask = corrected_t0 <= 0
+        stretch_mask = hodograph_times[i] > (1 + max_stretch_factor) * corrected_t0
+        muted_offsets = offsets[crossover_mask | stretch_mask]
         max_offsets[i] = muted_offsets.min() if muted_offsets.size > 0 else np.inf
 
     # Make a sequence of max offsets monotonically non-decreasing
