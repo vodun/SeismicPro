@@ -105,7 +105,7 @@ stacking_pipeline = (dataset
     .calculate_vertical_velocity_spectrum(src="muted_raw", dst="spectrum")
     .calculate_stacking_velocity(src="spectrum", dst="velocity")
     .get_central_gather(src="raw")
-    .apply_nmo(src="raw", stacking_velocity="velocity", max_stretch_factor=0.35, mute_crossover=True)
+    .apply_nmo(src="raw", stacking_velocity="velocity", max_stretch_factor=0.65)
     .stack(src="raw", amplify_factor=0.2)
     .dump(src="raw", path=STACK_TRACE_PATH)
 )

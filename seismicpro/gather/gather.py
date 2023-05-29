@@ -169,8 +169,7 @@ class Gather(TraceContainer, SamplesContainer):
         # Split key into indexers of traces and samples
         key = (key,) if not isinstance(key, tuple) else key
         key = key + (slice(None),) if len(key) == 1 else key
-
-        if len(key) != 2:# or None in key:
+        if len(key) != 2 or any(indexer is None for indexer in key):
             raise KeyError("Data ndim must not change")
         traces_indexer, samples_indexer = key
 
@@ -513,8 +512,8 @@ class Gather(TraceContainer, SamplesContainer):
             mean = self.survey.mean
             std = self.survey.std
         else:
-            mean = self._apply_agg_func(func=np.mean, tracewise=tracewise, keepdims=True)
-            std = self._apply_agg_func(func=np.std, tracewise=tracewise, keepdims=True)
+            mean = self._apply_agg_func(func=np.nanmean, tracewise=tracewise, keepdims=True)
+            std = self._apply_agg_func(func=np.nanstd, tracewise=tracewise, keepdims=True)
         self.data = normalization.scale_standard(self.data, mean, std, np.float32(eps))
         return self
 
@@ -812,7 +811,7 @@ class Gather(TraceContainer, SamplesContainer):
     @batch_method(target="for", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_vertical_velocity_spectrum(self, velocities=None, stacking_velocity=None, relative_margin=0.2,
                                              velocity_step=50, window_size=50, mode='semblance',
-                                             max_stretch_factor=np.inf):
+                                             max_stretch_factor=np.inf, interpolate=True):
         """Calculate vertical velocity spectrum for the gather.
 
         Notes
@@ -822,7 +821,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         Examples
         --------
-        Calculate vertical velocity spectrum with default parameters: velocities evenly spaces around default stacking
+        Calculate vertical velocity spectrum with default parameters: velocities evenly spaced around default stacking
         velocity, 50 ms temporal window size, semblance coherency measure and no muting of hodograph stretching:
         >>> spectrum = gather.calculate_vertical_velocity_spectrum()
 
@@ -841,8 +840,8 @@ class Gather(TraceContainer, SamplesContainer):
         stacking_velocity : StackingVelocity or StackingVelocityField or str, optional,
                             defaults to DEFAULT_STACKING_VELOCITY
             Stacking velocity around which vertical velocity spectrum is calculated if `velocities` are not given.
-            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed,
-            a `StackingVelocity` corresponding to gather coordinates is fetched from it. May be `str` if called in a
+            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed, a
+            `StackingVelocity` corresponding to gather coordinates is fetched from it. May be `str` if called in a
             pipeline: in this case it defines a component with stacking velocities to use.
         relative_margin : float, optional, defaults to 0.2
             Relative velocity margin to additionally extend the velocity range obtained from `stacking_velocity`: an
@@ -863,10 +862,13 @@ class Gather(TraceContainer, SamplesContainer):
                 `crosscorrelation` or `CC`,
                 `energy_normalized_crosscorrelation` or `ENCC`.
         max_stretch_factor : float, defaults to np.inf
-            Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            This mute is applied after nmo correction for each provided velocity and before coherency calculation. The
-            lower the value, the stronger the mute. In case np.inf (default) no mute is applied. Reasonably good value
-            is 0.65.
+            Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO
+            correction. This mute is applied after NMO correction for each provided velocity and before coherency
+            calculation. The lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
+            Reasonably good value is 0.65.
+        interpolate: bool, optional, defaults to True
+            Whether to perform linear interpolation to retrieve amplitudes along hodographs. If `False`, an amplitude
+            at the nearest time sample is used.
 
         Returns
         -------
@@ -875,11 +877,13 @@ class Gather(TraceContainer, SamplesContainer):
         """
         return VerticalVelocitySpectrum(gather=self, velocities=velocities, stacking_velocity=stacking_velocity,
                                         relative_margin=relative_margin, velocity_step=velocity_step,
-                                        window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor)
+                                        window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor,
+                                        interpolate=interpolate)
 
     @batch_method(target="for", args_to_unpack="stacking_velocity", copy_src=False)
-    def calculate_residual_velocity_spectrum(self, stacking_velocity, relative_margin=0.2, velocity_step=50,
-                                             window_size=50, mode="semblance", max_stretch_factor=np.inf):
+    def calculate_residual_velocity_spectrum(self, stacking_velocity, relative_margin=0.2, velocity_step=25,
+                                             window_size=50, mode="semblance", max_stretch_factor=np.inf,
+                                             interpolate=True):
         """Calculate residual velocity spectrum for the gather and provided stacking velocity.
 
         Notes
@@ -903,7 +907,7 @@ class Gather(TraceContainer, SamplesContainer):
         relative_margin : float, optional, defaults to 0.2
             Relative velocity margin, that determines the velocity range for velocity spectrum calculation for each
             time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
-        velocity_step : float, optional, defaults to 50
+        velocity_step : float, optional, defaults to 25
             A step between two adjacent velocities for which residual velocity spectrum is calculated. Measured in
             meters/seconds.
         window_size : int, optional, defaults to 50
@@ -918,10 +922,13 @@ class Gather(TraceContainer, SamplesContainer):
                 `crosscorrelation` or `CC`,
                 `energy_normalized_crosscorrelation` or `ENCC`.
         max_stretch_factor : float, defaults to np.inf
-            Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            This mute is applied after nmo correction for each provided velocity and before coherency calculation. The
-            lower the value, the stronger the mute. In case np.inf (default) no mute is applied. Reasonably good value
-            is 0.65.
+            Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO
+            correction. This mute is applied after NMO correction for each provided velocity and before coherency
+            calculation. The lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
+            Reasonably good value is 0.65.
+        interpolate: bool, optional, defaults to True
+            Whether to perform linear interpolation to retrieve amplitudes along hodographs. If `False`, an amplitude
+            at the nearest time sample is used.
 
         Returns
         -------
@@ -930,7 +937,8 @@ class Gather(TraceContainer, SamplesContainer):
         """
         return ResidualVelocitySpectrum(gather=self, stacking_velocity=stacking_velocity,
                                         relative_margin=relative_margin, velocity_step=velocity_step,
-                                        window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor)
+                                        window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor,
+                                        interpolate=interpolate)
 
 
     @batch_method(target="threads", copy_src=False)
@@ -1028,7 +1036,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity, mute_crossover=False, max_stretch_factor=np.inf, fill_value=np.nan):
+    def apply_nmo(self, stacking_velocity, max_stretch_factor=np.inf, interpolate=True, fill_value=np.nan):
         """Perform gather normal moveout correction using the given stacking velocity.
 
         Notes
@@ -1040,16 +1048,17 @@ class Gather(TraceContainer, SamplesContainer):
         stacking_velocity : int, float, StackingVelocity, StackingVelocityField or str
             Stacking velocities to perform NMO correction with. `StackingVelocity` instance is used directly. If
             `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather coordinates is
-            fetched from it. If `int` or `float` then constant-velocity correction is performed.
-            May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
-        mute_crossover: bool, optional, defaults to False
-            Whether to mute areas where time reversal occurred after NMO correction.
+            fetched from it. If `int` or `float` then constant-velocity correction is performed. May be `str` if called
+            in a pipeline: in this case it defines a component with stacking velocities to use.
         max_stretch_factor : float, optional, defaults to np.inf
             Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO
-            correction. The lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
-            Reasonably good value is 0.65.
+            correction. The lower the value, the stronger the mute. In case np.inf (default) only areas where time
+            reversal occurred are muted. Reasonably good value is 0.65.
+        interpolate: bool, optional, defaults to True
+            Whether to perform linear interpolation to retrieve amplitudes along hodographs. If `False`, an amplitude
+            at the nearest time sample is used.
         fill_value : float, optional, defaults to np.nan
-            Value used to fill the amplitudes outside the gather bounds after moveout.
+            Fill value to use if hodograph time is outside the gather bounds.
 
         Returns
         -------
@@ -1061,16 +1070,22 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If wrong type of `stacking_velocity` is passed.
         """
-        if isinstance(stacking_velocity, (int, float)):
-            stacking_velocity = StackingVelocity.from_constant_velocity(stacking_velocity)
+        if isinstance(stacking_velocity, (int, float, np.number)):
+            stacking_velocity = np.float32(stacking_velocity / 1000)  # from m/s to m/ms
+            self.data = correction.apply_constant_velocity_nmo(self.data, self.offsets, self.sample_interval,
+                                                               self.delay, self.times, stacking_velocity,
+                                                               max_stretch_factor, interpolate, fill_value)
+            return self
+
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
         if not isinstance(stacking_velocity, StackingVelocity):
             raise ValueError("stacking_velocity must be of int, float, StackingVelocity or StackingVelocityField type")
 
-        velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
-        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_interval,
-                                         self.delay, mute_crossover, max_stretch_factor, fill_value)
+        velocities = stacking_velocity(self.times) / 1000  # from m/s to m/ms
+        velocities_grad = np.gradient(velocities, self.sample_interval)
+        self.data = correction.apply_nmo(self.data, self.offsets, self.sample_interval, self.delay, self.times,
+                                         velocities, velocities_grad, max_stretch_factor, interpolate, fill_value)
         return self
 
     #------------------------------------------------------------------------#
@@ -1464,9 +1479,10 @@ class Gather(TraceContainer, SamplesContainer):
             - Any additional arguments for `matplotlib.axes.Axes.scatter`.
             If some dictionary value is array-like, each its element will be associated with the corresponding header.
             Otherwise, the single value will be used for all the scatter plots.
-        top_header : str, optional, defaults to None
+        top_header : str, array-like, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
-            The name of a header whose values will be plotted on top of the gather plot.
+            If str, the name of a header whose values will be plotted on top of the gather plot.
+            If array-like, the value for each trace that will be plotted on top of the gather plot.
         masks : array-like, str, dict or Gather, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
             Mask or list of masks to plot on top of the gather plot.
@@ -1665,7 +1681,17 @@ class Gather(TraceContainer, SamplesContainer):
         # Add a top subplot for given header if needed and set plot title
         top_ax = ax
         if top_header is not None:
-            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header], y_ticker=y_ticker)
+            if isinstance(top_header, str):
+                header_values = self[top_header]
+            elif isinstance(top_header, (np.ndarray, list, tuple)) and len(top_header) == self.n_traces:
+                header_values = top_header
+            else:
+                msg = f"`top_header` should be `str`, `np.ndarray`, `list` or `tuple` not `{type(top_header)}`"
+                warnings.warn(msg)
+                header_values = None
+
+            if header_values is not None:
+                top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=header_values, y_ticker=y_ticker)
 
         # Set axis ticks.
         self._set_x_ticks(ax, tick_src=x_tick_src, ticker=x_ticker)
@@ -1674,7 +1700,8 @@ class Gather(TraceContainer, SamplesContainer):
         top_ax.set_title(**{'label': None, **title})
 
         if len(ax.get_legend_handles_labels()[0]):
-            ax.legend()
+            # Define legend position to speed up plotting for huge gathers
+            ax.legend(loc='upper right')
 
     def _process_masks(self, masks):
         colors_iterator = cycle(['tab:red', 'tab:blue', 'tab:orange', 'tab:green', 'tab:purple', 'tab:pink',
