@@ -790,6 +790,16 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
 
 
 
+class SlantStackPlot(VelocitySpectrumPlot):
+
+    def get_hodograph(self, corrected):
+        """Get hodograph times if click has been performed."""
+        if (self.click_time is None) or (self.click_vel is None):
+            return None
+        if not corrected:
+            return self.click_time + self.gather.offsets/self.click_vel
+        return np.full_like(self.gather.offsets, self.click_time)
+
 class SlantStack(VerticalVelocitySpectrum):
 
     # @staticmethod
@@ -821,8 +831,53 @@ class SlantStack(VerticalVelocitySpectrum):
         """Plot velocity spectrum in interactive or non-interactive mode."""
         if not interactive:
             return self._plot(*args, **kwargs)
-        from .interactive_plot import SlantStackPlot
         return SlantStackPlot(self, *args, **kwargs).plot()
+
+
+class DispersionSpectrumPlot(VelocitySpectrumPlot):
+    def get_gather_title(self):
+        """Get title of the gather plot."""
+        if (self.click_time is None) or (self.click_vel is None):
+            return "Gather"
+        return f"Hodographs with freq {self.click_time:.0f} HZ with {self.click_vel:.2f} km/s velocity"
+
+    def get_gather(self, corrected=False):
+        """Get an optionally corrected gather."""
+        if not corrected:
+            return self.gather
+        return self.gather
+
+    def get_hodograph(self, corrected):
+        """Get hodograph times if click has been performed."""
+        if (self.click_time is None) or (self.click_vel is None):
+            return None
+        if not corrected:
+            return self.click_time + self.gather.offsets/self.click_vel
+        return np.full_like(self.gather.offsets, self.click_time)
+
+    def plot_gather(self, ax, corrected=False):
+        """Plot the gather and a hodograph if click has been performed."""
+        if corrected:
+            self.gather.plot(ax=ax)
+            return
+        if (self.click_time is None) or (self.click_vel is None):
+            self.gather.plot(ax=ax)
+            return
+        gather = self.get_gather(corrected=corrected).copy()
+
+        dt = 400
+        hodographs = [np.array(t0 + self.gather.offsets/self.click_vel) for t0 in np.arange(-self.gather.times[-1], self.gather.times[-1], dt)]
+        for hodograph in hodographs:
+            hodograph_y = self.gather.times_to_indices(hodograph) - 0.5  # Correction for pixel center
+            half_window = dt / 2 / 2 / self.gather.sample_interval
+            hodograph_low = np.clip(hodograph_y - half_window, 0, len(self.gather.times) - 1)
+            hodograph_high = np.clip(hodograph_y + half_window, 0, len(self.gather.times) - 1)
+            ax.fill_between(np.arange(len(hodograph)), hodograph_low, hodograph_high, color="tab:blue", alpha=0.3)
+
+        gather.bandpass_filter(low=self.click_time - 1, high=self.click_time + 1, filter_size=81 * 2)
+        gather.plot(ax=ax, q_vmin=0.2, q_vmax=0.8) # gather_plot_kwargs
+
+
 
 
 class EmptySpectrum(VerticalVelocitySpectrum):
@@ -837,11 +892,24 @@ class EmptySpectrum(VerticalVelocitySpectrum):
         self._times = f
         self.title = title
 
+    @property
+    def sample_interval(self):
+        return np.diff(self.times)[0]
+
     def _plot(self, *args, **kwargs):
         """Plot vertical velocity spectrum."""
         kwargs['title'] = self.title
         super()._plot(*args, **kwargs)
 
+    def plot(self, *args, interactive=False, **kwargs):
+        if not interactive:
+            return self._plot(*args, **kwargs)
+        return DispersionSpectrumPlot(self, *args, **kwargs).plot()
+
+    def normalize(self):
+        spectrum_max = np.nansum(self.velocity_spectrum ** 2, axis=1, keepdims=True) ** 0.5
+        self.velocity_spectrum = np.where(spectrum_max != 0, self.velocity_spectrum / spectrum_max, 0)
+        return self
 
 from numba import njit, prange
 @njit(nogil=True, parallel=True)
@@ -875,12 +943,12 @@ class PhaseShist(EmptySpectrum):
         fmax = fmax or f.max()
         #A = A[:, f < fmax]
         f = f[f < fmax]
-        power = ps(velocities, f, gather.offsets, A)
+        power = ps(velocities, f, gather.offsets, A).T
 
-        power_max = np.nansum(power ** 2, axis=0, keepdims=True) ** 0.5
-        power = np.where(power_max != 0, power / power_max, 0)
+        # power_max = np.nansum(power ** 2, axis=1, keepdims=True) ** 0.5
+        # power = np.where(power_max != 0, power / power_max, 0)
     
-        super().__init__(gather, velocities, f, power.T)
+        super().__init__(gather, velocities, f, power)
     
  
 
@@ -930,8 +998,8 @@ class BeamFormer(EmptySpectrum):
         power = fdbf(fft, velocities, frequencies, gather.offsets.astype(np.float32), cylindrical, weighted)
         power = np.abs(power)
     
-        power_max = np.nansum(power ** 2, axis=1, keepdims=True) ** 0.5
-        power = np.where(power_max != 0, power / power_max, 0)
+        # power_max = np.nansum(power ** 2, axis=1, keepdims=True) ** 0.5
+        # power = np.where(power_max != 0, power / power_max, 0)
 
         super().__init__(gather, velocities, frequencies, power)
 

@@ -103,14 +103,3 @@ class VelocitySpectrumPlot(PairedPlot):  # pylint: disable=too-many-instance-att
         self.click_vel = None
         self.aux.set_view(0)
         self.aux.view_button.disabled = True
-
-
-class SlantStackPlot(VelocitySpectrumPlot):
-
-    def get_hodograph(self, corrected):
-        """Get hodograph times if click has been performed."""
-        if (self.click_time is None) or (self.click_vel is None):
-            return None
-        if not corrected:
-            return self.click_time + self.gather.offsets/self.click_vel
-        return np.full_like(self.gather.offsets, self.click_time)
