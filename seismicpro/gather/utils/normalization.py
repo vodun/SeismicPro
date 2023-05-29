@@ -48,7 +48,7 @@ def get_gather_stats(data):
     n_traces = data.shape[0]
     mean = np.empty((n_traces, 1), dtype=data.dtype)
     std = np.empty((n_traces, 1), dtype=data.dtype)
-    for i in prange(n_traces):
+    for i in prange(n_traces): # pylint: disable=not-an-iterable
         mean[i] = np.nanmean(data[i])
         std[i] = np.nanstd(data[i])
     return mean, std
@@ -95,7 +95,7 @@ def get_quantile(data, q):
     """
     n_traces, n_quantiles = len(data), len(q)
     values = np.empty((n_quantiles, n_traces), dtype=np.float64)
-    for i in prange(n_traces):
+    for i in prange(n_traces): # pylint: disable=not-an-iterable
         values[:, i] = np.nanquantile(data[i], q=q)
     return values.astype(data.dtype)
 
