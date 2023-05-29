@@ -490,8 +490,8 @@ class Gather(TraceContainer, SamplesContainer):
         if use_global:
             if not self.survey.has_stats:
                 raise ValueError('Global statistics were not calculated, call `Survey.collect_stats` first.')
-            mean = np.atleast_2d(np.array(self.survey.mean))
-            std = np.atleast_2d(np.array(self.survey.std))
+            mean = np.atleast_2d(self.survey.mean)
+            std = np.atleast_2d(self.survey.std)
         elif not tracewise:
             mean = np.nanmean(self.data, keepdims=True)
             std = np.nanstd(self.data, keepdims=True)

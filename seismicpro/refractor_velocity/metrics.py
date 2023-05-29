@@ -23,12 +23,12 @@ class RefractorVelocityMetric(Metric):
     Parameters
     ----------
     first_breaks_header : str, optional, defaults to None
-            Column name from `survey.headers` where times of first break are stored.
-            If not provided, must be set before the metric call via `set_defaults`.
+        Column name from `survey.headers` where times of first break are stored.
+        If not provided, must be set before the metric call via `set_defaults`.
     correct_uphole : bool, optional, defaults to None
-            Whether to perform uphole correction by adding values of "SourceUpholeTime" header to times of first breaks
-            emulating the case when sources are located on the surface.
-            If not provided, must be set before the metric call via `set_defaults`.
+        Whether to perform uphole correction by adding values of "SourceUpholeTime" header to times of first breaks
+        emulating the case when sources are located on the surface.
+        If not provided, must be set before the metric call via `set_defaults`.
     name : str, optional
         Metric name, overrides default name if given.
     """
@@ -219,8 +219,6 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
     """
 
     name = "first_breaks_amplitudes"
-    vmin = 0
-    vmax = 0.5
     is_lower_better = None
 
     @staticmethod
