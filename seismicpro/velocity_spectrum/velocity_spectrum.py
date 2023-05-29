@@ -792,11 +792,11 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
 
         Parameters
         ----------
-        acceptable_margin : bool, optional
-            Defines the size of an area around central stacking velocity that will be highlighted on the spectrum plot.
-            May be used for visual quality control of stacking velocity picking by setting this value low enough and
-            checking that local maximas of velocity spectrum corresponding to primaries lie inside the highlighted
-            area.
+        acceptable_margin : float, optional
+            Defines an area around central stacking velocity that will be highlighted on the spectrum plot as
+            `stacking_velocity(t)` * (1 +- `acceptable_margin`) for each time `t`. May be used for visual quality
+            control of stacking velocity picking by setting this value low enough and checking that local maximas of
+            velocity spectrum corresponding to primaries lie inside the highlighted area.
         title : str, optional
             Plot title. If not provided, equals to stacked lines "Residual Velocity Spectrum" and coherency func name.
         x_ticker : dict, optional, defaults to None
