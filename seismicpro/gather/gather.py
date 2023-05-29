@@ -169,7 +169,7 @@ class Gather(TraceContainer, SamplesContainer):
         # Split key into indexers of traces and samples
         key = (key,) if not isinstance(key, tuple) else key
         key = key + (slice(None),) if len(key) == 1 else key
-        if len(key) != 2 or None in key:
+        if len(key) != 2 or any(indexer is None for indexer in key):
             raise KeyError("Data ndim must not change")
         traces_indexer, samples_indexer = key
 
@@ -1423,10 +1423,10 @@ class Gather(TraceContainer, SamplesContainer):
             - Any additional arguments for `matplotlib.axes.Axes.scatter`.
             If some dictionary value is array-like, each its element will be associated with the corresponding header.
             Otherwise, the single value will be used for all the scatter plots.
-        top_header : str or array-like, optional, defaults to None
+        top_header : str, array-like, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
             If str, the name of a header whose values will be plotted on top of the gather plot.
-            If array-like, a vector containing self.n_traces elements.
+            If array-like, the value for each trace that will be plotted on top of the gather plot.
         masks : array-like, str, dict or Gather, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
             Mask or list of masks to plot on top of the gather plot.
@@ -1625,8 +1625,17 @@ class Gather(TraceContainer, SamplesContainer):
         # Add a top subplot for given header if needed and set plot title
         top_ax = ax
         if top_header is not None:
-            header_values = self[top_header] if isinstance(top_header, str) else top_header
-            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=header_values, y_ticker=y_ticker)
+            if isinstance(top_header, str):
+                header_values = self[top_header]
+            elif isinstance(top_header, (np.ndarray, list, tuple)) and len(top_header) == self.n_traces:
+                header_values = top_header
+            else:
+                msg = f"`top_header` should be `str`, `np.ndarray`, `list` or `tuple` not `{type(top_header)}`"
+                warnings.warn(msg)
+                header_values = None
+
+            if header_values is not None:
+                top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=header_values, y_ticker=y_ticker)
 
         # Set axis ticks.
         self._set_x_ticks(ax, tick_src=x_tick_src, ticker=x_ticker)
@@ -1635,7 +1644,8 @@ class Gather(TraceContainer, SamplesContainer):
         top_ax.set_title(**{'label': None, **title})
 
         if len(ax.get_legend_handles_labels()[0]):
-            ax.legend()
+            # Define legend position to speed up plotting for huge gathers
+            ax.legend(loc='upper right')
 
     def _process_masks(self, masks):
         colors_iterator = cycle(['tab:red', 'tab:blue', 'tab:orange', 'tab:green', 'tab:purple', 'tab:pink',

@@ -10,7 +10,6 @@ class SignalLeakage(PipelineMetric):
     The metric is based on the assumption that a vertical velocity spectrum calculated for the difference between
     processed and source gathers should not have pronounced energy maxima.
     """
-    name = "signal_leakage"
     is_lower_better = True
     min_value = 0
     max_value = None
