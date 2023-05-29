@@ -496,11 +496,11 @@ class Gather(TraceContainer, SamplesContainer):
             mean = np.nanmean(self.data, keepdims=True)
             std = np.nanstd(self.data, keepdims=True)
         else:
-            mean, std = None, None
+            mean, std = normalization.get_gather_stats(self.data)
         self.data = normalization.scale_standard(self.data, mean, std, np.float32(eps))
         return self
 
-    @batch_method(target='for')
+    @batch_method(target='threads')
     def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         r"""Scale the gather by its maximum absolute value.
 
@@ -547,17 +547,17 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             min_value, max_value = self.survey.get_quantile([q_min, q_max])
-            min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
         elif not tracewise:
             min_value, max_value = self.get_quantile([q_min, q_max], tracewise=False)
-            min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
         else:
-            min_value, max_value = None, None
-        self.data = normalization.scale_maxabs(self.data, min_value, max_value, q_min, q_max,
-                                               clip, np.float32(eps))
+            min_value, max_value = normalization.get_quantile(self.data, np.array([q_min, q_max]))
+        # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
+        # for further broadcasting to work tracewise
+        min_value, max_value = np.atleast_2d(min_value), np.atleast_2d(max_value)
+        self.data = normalization.scale_maxabs(self.data, min_value, max_value, clip, np.float32(eps))
         return self
 
-    @batch_method(target='for')
+    @batch_method(target='threads')
     def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         r"""Linearly scale the gather to a [0, 1] range.
 
@@ -600,14 +600,14 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             min_value, max_value = self.survey.get_quantile([q_min, q_max])
-            min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
         elif not tracewise:
             min_value, max_value = self.get_quantile([q_min, q_max], tracewise=False)
-            min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
         else:
-            min_value, max_value = None, None
-        self.data = normalization.scale_minmax(self.data, min_value, max_value, q_min, q_max,
-                                               clip, np.float32(eps))
+            min_value, max_value = normalization.get_quantile(self.data, [q_min, q_max])
+        # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
+        # for further broadcasting to work tracewise
+        min_value, max_value = np.atleast_2d(min_value), np.atleast_2d(max_value)
+        self.data = normalization.scale_minmax(self.data, min_value, max_value, clip, np.float32(eps))
         return self
 
     #------------------------------------------------------------------------#

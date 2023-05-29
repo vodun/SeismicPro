@@ -6,7 +6,7 @@ import numpy as np
 from numba import njit
 from scipy.signal import hilbert
 
-from ..gather.utils.normalization import scale_maxabs
+from ..gather.utils.normalization import scale_maxabs, get_quantile
 from ..gather.utils.correction import get_hodograph
 from ..metrics import Metric
 from ..utils import get_first_defined, set_ticks
@@ -225,8 +225,9 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
     @njit(nogil=True)
     def _calc(gather_data, offsets, picking_times, sample_interval, delay):
         """Calculate signal amplitudes at first break times."""
-        gather_data = scale_maxabs(gather_data, min_value=None, max_value=None, q_min=0, q_max=1,
-                                   clip=False, eps=1e-10)
+        min_value, max_value = get_quantile(gather_data, np.array([0, 1]))
+        min_value, max_value = np.atleast_2d(min_value), np.atleast_2d(max_value)
+        gather_data = scale_maxabs(gather_data, min_value=min_value, max_value=max_value, clip=False, eps=1e-10)
         return get_hodograph(gather_data, offsets, picking_times, sample_interval, delay, fill_value=0)
 
     def calc(self, gather, refractor_velocity):
