@@ -26,7 +26,7 @@ from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
 from ..metrics import initialize_metrics
 from ..utils import to_list, maybe_copy, get_cols, get_first_defined, ForPoolExecutor
-from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS
+from ..const import HDR_TRACE_POS
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
