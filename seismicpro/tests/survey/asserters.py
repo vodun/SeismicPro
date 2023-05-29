@@ -127,7 +127,10 @@ def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=F
     assert_both_none_or_close(left.max, right.max, rtol=rtol, atol=atol)
     assert_both_none_or_close(left.mean, right.mean, rtol=rtol, atol=atol)
     assert_both_none_or_close(left.std, right.std, rtol=rtol, atol=atol)
-    assert_both_none_or_close(left.n_dead_traces, right.n_dead_traces, rtol=rtol, atol=atol)
+
+    # Assert that qc metrics were not calculated for both surveys or metrics are the same
+    assert len(left.qc_metrics) == len(right.qc_metrics)
+    assert all(name in right.qc_metrics and right.qc_metrics[name] is obj for name, obj in left.qc_metrics.items())
 
     q = np.linspace(0, 1, 11)
     left_quantiles = left.quantile_interpolator(q) if left.quantile_interpolator is not None else None
