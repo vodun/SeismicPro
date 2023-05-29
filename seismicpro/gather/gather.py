@@ -906,9 +906,9 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads")
-    def apply_statics(self, statics_col, fill_value=0, event_headers=None):
-        trace_delays = -self[statics_col]
-        trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)
+    def apply_statics(self, statics_header, fill_value=0, event_headers=None):
+        trace_delays = -self[statics_header]
+        trace_delays_samples = np.rint(trace_delays / self.sample_interval).astype(np.int32)
         self.data = correction.apply_lmo(self.data, trace_delays_samples, fill_value)
         if event_headers is not None:
             self[to_list(event_headers)] += trace_delays.reshape(-1, 1)
