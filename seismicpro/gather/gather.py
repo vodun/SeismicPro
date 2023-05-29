@@ -550,7 +550,7 @@ class Gather(TraceContainer, SamplesContainer):
         elif not tracewise:
             min_value, max_value = self.get_quantile([q_min, q_max], tracewise=False)
         else:
-            min_value, max_value = normalization.get_quantile(self.data, np.array([q_min, q_max]))
+            min_value, max_value = normalization.get_quantile(self.data,[q_min, q_max])
         # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
         # for further broadcasting to work tracewise
         min_value, max_value = np.atleast_2d(min_value), np.atleast_2d(max_value)

@@ -6,7 +6,6 @@ import numpy as np
 from numba import njit
 from scipy.signal import hilbert
 
-from ..gather import Gather
 from ..gather.utils.normalization import scale_maxabs, get_quantile
 from ..gather.utils.correction import get_hodograph
 from ..metrics import Metric
@@ -418,10 +417,10 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
                 plotting_kwargs["masks"] = {"masks": metric_values * -1, "threshold": mask_threshold * -1}
         traces_windows = self._make_windows(gather[self.first_breaks_header], gather.data, gather["offset"],
                                             self.window_size, gather.sample_interval, gather.delay)
-        window_gather = Gather(headers=gather.headers, data=traces_windows, sample_interval=gather.sample_interval,
-                               survey=gather.survey, delay=0)
+        gather.data = traces_windows
+        gather.samples = gather.create_samples(traces_windows.shape[1], gather.sample_interval, gather.delay)
         plotting_kwargs.update(kwargs)
-        window_gather.plot(ax=ax, **plotting_kwargs)
+        gather.plot(ax=ax, **plotting_kwargs)
         set_ticks(ax, axis="y", label="Time from first break, ms",
                   num=min(self.window_size // int(gather.sample_interval), 9),
                   major_labels=np.arange(-self.window_size // 2, self.window_size // 2 + 1, int(gather.sample_interval),
@@ -435,10 +434,10 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
                                             self.window_size, gather.sample_interval, gather.delay)
         mean_hodograph = np.nanmean(traces_windows, axis=0)
         mean_hodograph_scaled = ((mean_hodograph - mean_hodograph.mean()) / mean_hodograph.std()).reshape(1, -1)
-        fb_gather = Gather(headers=gather.headers, data=mean_hodograph_scaled, sample_interval=gather.sample_interval,
-                           survey=gather.survey, delay=0)
 
-        fb_gather.plot(mode="wiggle", ax=ax, **kwargs)
+        gather.data = mean_hodograph_scaled
+        gather.samples = gather.create_samples(mean_hodograph_scaled.shape[1], gather.sample_interval, gather.delay)
+        gather.plot(mode="wiggle", ax=ax, **kwargs)
         fb_time_mean = np.mean(gather[self.first_breaks_header], dtype=np.int32)
         set_ticks(ax, axis="x", label="Amplitude", num=3)
         set_ticks(ax, axis="y", label="Time, ms",

@@ -93,7 +93,7 @@ def get_quantile(data, q):
     q : 2d np.ndarray of floats
         The array with `q`-th quantile values.
     """
-    n_traces, n_quantiles = len(data), q.size
+    n_traces, n_quantiles = len(data), len(q)
     values = np.empty((n_quantiles, n_traces), dtype=np.float64)
     for i in prange(n_traces):
         values[:, i] = np.nanquantile(data[i], q=q)
