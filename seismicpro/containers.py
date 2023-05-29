@@ -88,7 +88,7 @@ class TraceContainer:
 
     @property
     def is_empty(self):
-        """bool: Whether no gathers are stored in the container."""
+        """bool: Whether no traces are stored in the container."""
         return self.n_traces == 0
 
     def __getitem__(self, key):
