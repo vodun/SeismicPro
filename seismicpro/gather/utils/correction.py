@@ -92,6 +92,11 @@ def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, v
     If stacking velocity was properly picked, the reflection events on a corrected CDP gather are mostly flattened
     across the offset range.
 
+    Gather data is additionally muted after NMO correction:
+    * Areas where time reversal occurred after correction are always muted,
+    * Stretch muting may optionally be performed if `max_stretch_factor` is given.
+    In order to calculate gather samples to mute, velocity gradient at given `times` must be provided.
+
     Parameters
     ----------
     gather_data : 2d np.ndarray
@@ -108,8 +113,8 @@ def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, v
         Stacking velocities for each zero-offset traveltime. Must match the shape of `times`.
         Measured in meters/milliseconds.
     velocities_grad : 1d np.ndarray
-        Gradient of stacking velocities for each zero-offset traveltime. Must match the shape of `times`.
-        Measured in meters/milliseconds^2.
+        Gradient of stacking velocities for each zero-offset traveltime. Must match the shape of `times`. Used to
+        calculate which gather samples to mute after correction. Measured in meters/milliseconds^2.
     max_stretch_factor : float, optional, defaults to np.inf
         Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO correction.
         The lower the value, the stronger the mute. In case np.inf (default) only areas where time reversal occurred
