@@ -16,7 +16,6 @@ class FirstBreaksOutliers(PipelineMetric):
     A first break time is considered to be an outlier if it differs from the expected arrival time defined by
     an offset-traveltime curve by more than a given threshold.
     """
-    name = "first_breaks_outliers"
     is_lower_better = True
     min_value = 0
     max_value = 1
@@ -25,7 +24,7 @@ class FirstBreaksOutliers(PipelineMetric):
     views = ("plot_gather", "plot_refractor_velocity")
     args_to_unpack = ("gather", "refractor_velocity")
 
-    def __call__(self, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
+    def __call__(self, gather, refractor_velocity, first_breaks_header=HDR_FIRST_BREAK, threshold_times=50,
                  correct_uphole=None):
         """Calculate the first break outliers metric.
 
@@ -38,7 +37,7 @@ class FirstBreaksOutliers(PipelineMetric):
             A seismic gather to get offsets and times of first breaks from.
         refractor_velocity : RefractorVelocity or RefractorVelocityField
             Near-surface velocity model to estimate the expected times of first breaks at `gather` offsets.
-        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+        first_breaks_header : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `gather.headers` where times of first breaks are stored.
         threshold_times: float, optional, defaults to 50
             Threshold for the first breaks outliers metric calculation. Measured in milliseconds.
@@ -58,7 +57,7 @@ class FirstBreaksOutliers(PipelineMetric):
         if not isinstance(refractor_velocity, RefractorVelocity):
             raise ValueError("refractor_velocity must be of RefractorVelocity or RefractorVelocityField type")
         expected_times = refractor_velocity(gather.offsets)
-        fb_times = gather[first_breaks_col]
+        fb_times = gather[first_breaks_header]
         if correct_uphole is None:
             correct_uphole = "SourceUpholeTime" in gather.available_headers and refractor_velocity.is_uphole_corrected
         if correct_uphole:
@@ -67,18 +66,18 @@ class FirstBreaksOutliers(PipelineMetric):
         return np.mean(metric)
 
     @staticmethod
-    def plot_gather(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
+    def plot_gather(gather, refractor_velocity, first_breaks_header=HDR_FIRST_BREAK, threshold_times=50,
                     correct_uphole=None, *, ax, **kwargs):
         """Plot the gather and its first breaks."""
         _ = refractor_velocity, threshold_times, correct_uphole
-        event_headers = kwargs.pop('event_headers', {'headers': first_breaks_col})
+        event_headers = kwargs.pop('event_headers', {'headers': first_breaks_header})
         gather.plot(ax=ax, event_headers=event_headers, **kwargs)
 
     @staticmethod
-    def plot_refractor_velocity(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
+    def plot_refractor_velocity(gather, refractor_velocity, first_breaks_header=HDR_FIRST_BREAK, threshold_times=50,
                                 correct_uphole=None, *, ax, **kwargs):
         """Plot the refractor velocity curve and show the threshold area used for metric calculation."""
-        fb_times = gather[first_breaks_col]
+        fb_times = gather[first_breaks_header]
         if correct_uphole is None:
             correct_uphole = "SourceUpholeTime" in gather.available_headers and refractor_velocity.is_uphole_corrected
         if correct_uphole:
@@ -104,7 +103,6 @@ class SignalLeakage(PipelineMetric):
     The metric is based on the assumption that a vertical velocity spectrum calculated for the difference between
     processed and source gathers should not have pronounced energy maxima.
     """
-    name = "signal_leakage"
     is_lower_better = True
     min_value = 0
     max_value = None
@@ -115,6 +113,9 @@ class SignalLeakage(PipelineMetric):
     def get_diff_gather(gather_before, gather_after):
         """Construct a new gather whose amplitudes are element-wise differences of amplitudes from `gather_after` and
         `gather_before`."""
+        if ((gather_before.shape != gather_after.shape) or (gather_before.delay != gather_after.delay) or
+            (gather_before.sample_interval != gather_after.sample_interval)):
+            raise ValueError("Both gathers should have the same shape and samples")
         gather_diff = gather_after.copy(ignore=["data", "headers", "samples"])
         gather_diff.data = gather_after.data - gather_before.data
         return gather_diff

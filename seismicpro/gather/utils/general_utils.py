@@ -3,20 +3,17 @@
 import numpy as np
 from numba import njit, prange
 
-from ...utils import times_to_indices
-
 
 @njit(nogil=True)
-def convert_times_to_mask(times, samples):
-    """Convert `times` to indices by finding a nearest position in `samples` for each time in `times` and construct a
-    boolean mask with shape (len(times), len(samples)) with `False` values before calculated time index for each row
-    and `True` after.
+def convert_times_to_mask(times, n_samples, sample_interval, delay):
+    """Convert `times` to indices of nearest samples in an array of `n_samples` evenly spaced elements starting from
+    `delay` with a step of `sample_interval`. Return a boolean mask with shape (n_times, n_samples) with `False` values
+    before calculated time index for each row and `True` values after.
 
     Examples
     --------
     >>> times = np.array([0, 4, 6])
-    >>> samples = [0, 2, 4, 6, 8]
-    >>> convert_times_to_mask(times, samples)
+    >>> convert_times_to_mask(times, n_samples=5, sample_interval=2, delay=0)
     array([[ True,  True,  True,  True,  True],
            [False, False,  True,  True,  True],
            [False, False, False,  True,  True]])
@@ -25,54 +22,58 @@ def convert_times_to_mask(times, samples):
     ----------
     times : 1d np.ndarray
         Time values to construct the mask. Measured in milliseconds.
-    samples : 1d np.ndarray of floats
-        Recording time for each trace value. Measured in milliseconds.
+    n_samples : int
+        The number of samples to consider.
+    sample_interval : float
+        Sample interval of seismic traces. Measured in milliseconds.
+    delay : float
+        Delay recording time of seismic traces. Measured in milliseconds.
 
     Returns
     -------
     mask : np.ndarray of bool
-        Boolean mask with shape (len(times), len(samples)).
+        Boolean mask with shape (n_times, n_samples).
     """
-    times_indices = times_to_indices(times, samples, round=True)
-    return (np.arange(len(samples)) - times_indices.reshape(-1, 1)) >= 0
+    times_indices = np.rint((times - delay) / sample_interval)
+    return np.arange(n_samples) >= times_indices.reshape(-1, 1)
 
 
 @njit(nogil=True, parallel=True)
-def convert_mask_to_pick(mask, samples, threshold):
+def convert_mask_to_pick(mask, threshold, sample_interval, delay):
     """Convert a first breaks `mask` into an array of arrival times.
 
-    The mask has shape (n_traces, trace_length), each its value represents a probability of corresponding index along
-    the trace to follow the first break. A naive approach is to define the first break time index as the location of
-    the first trace value exceeding the `threshold`. Unfortunately, it results in noisy predictions, so the following
+    The mask has shape (n_traces, n_samples), each its value represents a probability of corresponding index along the
+    trace to follow the first break. A naive approach is to define the first break time index as the location of the
+    first trace value exceeding the `threshold`. Unfortunately, it results in noisy predictions, so the following
     conversion procedure is proposed as it appears to be more stable:
     1. Binarize the mask according to the specified `threshold`,
-    2. Find the longest sequence of ones in the `mask` for each trace and save indices of the first elements of the
-       found sequences,
-    3. Return an array of `samples` values corresponding to the obtained indices.
+    2. Find the longest sequence of ones in the binarized mask for each trace and save indices of the first elements of
+       the found sequences,
+    3. Multiply these indices by `sample_interval` and add `delay` to obtain times of first breaks.
 
     Examples
     --------
     >>> mask = np.array([[  1, 1, 1, 1, 1],
     ...                  [  0, 0, 1, 1, 1],
     ...                  [0.6, 0, 0, 1, 1]])
-    >>> samples = [0, 2, 4, 6, 8]
-    >>> threshold = 0.5
-    >>> convert_mask_to_pick(mask, samples, threshold)
+    >>> convert_mask_to_pick(mask, samples, threshold=0.5, sample_interval=2, delay=0)
     array([0, 4, 6])
 
     Parameters
     ----------
     mask : 2d np.ndarray
-        An array with shape (n_traces, trace_length), with each value representing a probability of corresponding index
+        An array with shape (n_traces, n_samples), with each value representing a probability of corresponding index
         along the trace to follow the first break.
-    samples : 1d np.ndarray of floats
-        Recording time for each trace value. Measured in milliseconds.
     threshold : float
         A threshold for trace mask value to refer its index to be either pre- or post-first break.
+    sample_interval : float
+        Sample interval of seismic traces. Measured in milliseconds.
+    delay : float
+        Delay recording time of seismic traces. Measured in milliseconds.
 
     Returns
     -------
-    times : np.ndarray with length len(mask)
+    times : np.ndarray with length n_traces
         Start time of the longest sequence with `mask` values greater than the `threshold` for each trace. Measured in
         milliseconds.
     """
@@ -94,12 +95,12 @@ def convert_mask_to_pick(mask, samples, threshold):
         if curr_len > max_len:
             picking_ix = len(trace)
             max_len = curr_len
-        picking_times[i] = samples[picking_ix - max_len]
+        picking_times[i] = delay + sample_interval * (picking_ix - max_len)
     return picking_times
 
 
 @njit(nogil=True)
-def mute_gather(gather_data, muting_times, samples, fill_value):
+def mute_gather(gather_data, muting_times, sample_interval, delay, fill_value):
     """Fill area before `muting_times` with `fill_value`.
 
     Parameters
@@ -109,8 +110,10 @@ def mute_gather(gather_data, muting_times, samples, fill_value):
     muting_times : 1d np.ndarray
         Time values up to which muting is performed. Its length must match `gather_data.shape[0]`. Measured in
         milliseconds.
-    samples : 1d np.ndarray of floats
-        Recording time for each trace value. Measured in milliseconds.
+    sample_interval : float
+        Sample interval of seismic traces. Measured in milliseconds.
+    delay : float
+        Delay recording time of seismic traces. Measured in milliseconds.
     fill_value : float
          A value to fill the muted part of the gather with.
 
@@ -119,7 +122,7 @@ def mute_gather(gather_data, muting_times, samples, fill_value):
     gather_data : 2d np.ndarray
         Muted gather data.
     """
-    mask = convert_times_to_mask(times=muting_times, samples=samples)
+    mask = convert_times_to_mask(muting_times, gather_data.shape[1], sample_interval, delay)
     data_shape = gather_data.shape
     gather_data = gather_data.reshape(-1)
     mask = mask.reshape(-1)
