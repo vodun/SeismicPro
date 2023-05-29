@@ -1023,7 +1023,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                                chunk_size=chunk_size, n_workers=n_workers)
 
     # pylint: disable=anomalous-backslash-in-string
-    def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
+    def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_header=HDR_FIRST_BREAK,
                           delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
         """Load times of first breaks from a file and save them to a new column in headers.
 
@@ -1040,7 +1040,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             A path to the file with first break times in milliseconds.
         trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             Headers, whose values are stored in all but the last columns of the file.
-        first_breaks_col : str, optional, defaults to 'FirstBreak'
+        first_breaks_header : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
         delimiter: str, defaults to '\s+'
             Delimiter to use. See `pd.read_csv` for more details.
@@ -1073,7 +1073,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             decimal = '.' if '.' in row else ','
 
         trace_id_cols = to_list(trace_id_cols)
-        file_columns = trace_id_cols + [first_breaks_col]
+        file_columns = trace_id_cols + [first_breaks_header]
         first_breaks_df = pd.read_csv(path, delimiter=delimiter, names=file_columns, index_col=trace_id_cols,
                                       decimal=decimal, encoding=encoding, **kwargs)
         self.headers = self.headers.join(first_breaks_df, on=trace_id_cols, how="inner", rsuffix="_loaded")

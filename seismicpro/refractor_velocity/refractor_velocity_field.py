@@ -203,7 +203,7 @@ class RefractorVelocityField(SpatialField):
     @classmethod  # pylint: disable-next=too-many-arguments
     def from_survey(cls, survey, is_geographic=None, auto_create_interpolator=True, init=None, bounds=None,
                     n_refractors=None, min_velocity_step=1, min_refractor_size=1, loss='L1', huber_coef=20, tol=1e-5,
-                    first_breaks_col=HDR_FIRST_BREAK, correct_uphole=None, chunk_size=250, n_workers=None, bar=True,
+                    first_breaks_header=HDR_FIRST_BREAK, correct_uphole=None, chunk_size=250, n_workers=None, bar=True,
                     **kwargs):
         """Create a field by estimating a near-surface velocity model for each gather in the survey.
 
@@ -239,7 +239,7 @@ class RefractorVelocityField(SpatialField):
             Coefficient for Huber loss function.
         tol : float, optional, defaults to 1e-5
             Precision goal for the value of loss in the stopping criterion.
-        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+        first_breaks_header : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `survey.headers` where times of first break are stored.
         correct_uphole : bool, optional
             Whether to perform uphole correction by adding values of "SourceUpholeTime" header to times of first breaks
@@ -272,7 +272,7 @@ class RefractorVelocityField(SpatialField):
         coords_cols = get_coords_cols(survey.indexed_by, survey.source_id_cols, survey.receiver_id_cols)
         survey_coords = survey[coords_cols]
         survey_offsets = survey["offset"]
-        survey_times = survey[first_breaks_col]
+        survey_times = survey[first_breaks_header]
         if correct_uphole is None:
             correct_uphole = "SourceUpholeTime" in survey.available_headers
         if correct_uphole:
@@ -652,7 +652,7 @@ class RefractorVelocityField(SpatialField):
             Metrics to calculate. Defaults to those defined in `~metrics.REFRACTOR_VELOCITY_QC_METRICS`.
         survey : Survey, optional
             Survey to load traces from. Defaults to a survey the field is linked to.
-        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+        first_breaks_header : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `survey.headers` where times of first break are stored.
         correct_uphole : bool, optional
             Whether to perform uphole correction by adding values of "SourceUpholeTime" header to times of first breaks
@@ -680,7 +680,7 @@ class RefractorVelocityField(SpatialField):
         if correct_uphole is None:
             correct_uphole = "SourceUpholeTime" in survey.available_headers and self.is_uphole_corrected
         for metric in metrics_instances:
-            metric.set_defaults(first_breaks_col=first_breaks_col, correct_uphole=correct_uphole)
+            metric.set_defaults(first_breaks_header=first_breaks_header, correct_uphole=correct_uphole)
 
         coords_cols = to_list(get_coords_cols(survey.indexed_by))
         gather_change_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0]

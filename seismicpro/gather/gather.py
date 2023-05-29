@@ -615,13 +615,13 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def pick_to_mask(self, first_breaks_col=HDR_FIRST_BREAK):
+    def pick_to_mask(self, first_breaks_header=HDR_FIRST_BREAK):
         """Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
         first arrivals and ones after for each trace.
 
         Parameters
         ----------
-        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+        first_breaks_header : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             A column of `self.headers` that contains first arrival times, measured in milliseconds.
 
         Returns
@@ -629,14 +629,14 @@ class Gather(TraceContainer, SamplesContainer):
         gather : Gather
             A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        mask = convert_times_to_mask(times=self[first_breaks_col], n_samples=self.n_samples,
+        mask = convert_times_to_mask(times=self[first_breaks_header], n_samples=self.n_samples,
                                      sample_interval=self.sample_interval, delay=self.delay)
         gather = self.copy(ignore='data')
         gather.data = mask.astype(np.float32)
         return gather
 
     @batch_method(target='threads', args_to_unpack='save_to')
-    def mask_to_pick(self, threshold=0.5, first_breaks_col=HDR_FIRST_BREAK, save_to=None):
+    def mask_to_pick(self, threshold=0.5, first_breaks_header=HDR_FIRST_BREAK, save_to=None):
         """Convert a first break mask saved in `data` into times of first arrivals.
 
         For a given trace each value of the mask represents the probability that the corresponding time sample follows
@@ -651,7 +651,7 @@ class Gather(TraceContainer, SamplesContainer):
         ----------
         threshold : float, optional, defaults to 0.5
             A threshold for trace mask value to refer its index to be either pre- or post-first break.
-        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+        first_breaks_header : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Headers column to save first break times to.
         save_to : Gather or str, optional
             An extra `Gather` to save first break times to. Generally used to conveniently pass first break times from
@@ -662,23 +662,23 @@ class Gather(TraceContainer, SamplesContainer):
         Returns
         -------
         self : Gather
-            A gather with first break times in headers column defined by `first_breaks_col`.
+            A gather with first break times in headers column defined by `first_breaks_header`.
         """
         picking_times = convert_mask_to_pick(mask=self.data, threshold=threshold, sample_interval=self.sample_interval,
                                              delay=self.delay)
-        self[first_breaks_col] = picking_times
+        self[first_breaks_header] = picking_times
         if save_to is not None:
-            save_to[first_breaks_col] = picking_times
+            save_to[first_breaks_header] = picking_times
         return self
 
     @batch_method(target='for', use_lock=True)
-    def dump_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
+    def dump_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_header=HDR_FIRST_BREAK,
                           col_space=8, encoding="UTF-8"):
         """ Save first break picking times to a file.
 
         Each line in the resulting file corresponds to one trace, where all columns but
         the last one store values from `trace_id_cols` headers and identify the trace
-        while the last column stores first break time from `first_breaks_col` header.
+        while the last column stores first break time from `first_breaks_header` header.
 
         Parameters
         ----------
@@ -686,7 +686,7 @@ class Gather(TraceContainer, SamplesContainer):
             Path to the file.
         trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             Columns names from `self.headers` that act as trace id. These would be present in the file.
-        first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
+        first_breaks_header : str, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `self.headers` where first break times are stored.
         col_space : int, defaults to 8
             The minimum width of each column.
@@ -698,7 +698,7 @@ class Gather(TraceContainer, SamplesContainer):
         self : Gather
             Gather unchanged
         """
-        rows = self[to_list(trace_id_cols) + [first_breaks_col]]
+        rows = self[to_list(trace_id_cols) + [first_breaks_header]]
 
         # SEG-Y specification states that all headers values are integers, but first break values can be float
         row_fmt = '{:{col_space}.0f}' * (rows.shape[1] - 1) + '{:{col_space}.2f}\n'
@@ -712,7 +712,7 @@ class Gather(TraceContainer, SamplesContainer):
     @batch_method(target="for", copy_src=False)  # pylint: disable-next=too-many-arguments
     def calculate_refractor_velocity(self, init=None, bounds=None, n_refractors=None, max_offset=None,
                                      min_velocity_step=1, min_refractor_size=1, loss="L1", huber_coef=20, tol=1e-5,
-                                     first_breaks_col=HDR_FIRST_BREAK, correct_uphole=None, **kwargs):
+                                     first_breaks_header=HDR_FIRST_BREAK, correct_uphole=None, **kwargs):
         """Fit a near-surface velocity model by offsets of traces and times of their first breaks.
 
         Notes
@@ -748,7 +748,7 @@ class Gather(TraceContainer, SamplesContainer):
             Coefficient for Huber loss function.
         tol : float, optional, defaults to 1e-5
             Precision goal for the value of loss in the stopping criterion.
-        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+        first_breaks_header : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `self.headers` where times of first break are stored.
         correct_uphole : bool, optional
             Whether to perform uphole correction by adding values of "SourceUpholeTime" header to times of first breaks
@@ -763,7 +763,7 @@ class Gather(TraceContainer, SamplesContainer):
         rv : RefractorVelocity
             Constructed near-surface velocity model.
         """
-        times = self[first_breaks_col]
+        times = self[first_breaks_header]
         if correct_uphole is None:
             correct_uphole = "SourceUpholeTime" in self.available_headers
         if correct_uphole:
