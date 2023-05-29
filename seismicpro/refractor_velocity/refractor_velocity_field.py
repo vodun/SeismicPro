@@ -636,7 +636,7 @@ class RefractorVelocityField(SpatialField):
         FieldPlot(self, **kwargs).plot()
 
     #pylint: disable-next=invalid-name
-    def qc(self, metrics=None, survey=None, first_breaks_col=HDR_FIRST_BREAK, correct_uphole=None,
+    def qc(self, metrics=None, survey=None, first_breaks_header=HDR_FIRST_BREAK, correct_uphole=None,
            n_workers=None, bar=True, chunk_size=250):
         """Perform quality control of the first breaks given the near-surface velocity model.
         By default, the following metrics are calculated:

@@ -74,8 +74,7 @@ class RefractorVelocityMetric(Metric):
 
     def get_views(self, sort_by=None, threshold=None, **kwargs):
         """Return plotters of the metric views and add kwargs for `plot_gather` for interactive map plotting."""
-        views_list = [partial(self.plot_gather, sort_by=sort_by, threshold=threshold),
-                      partial(self.plot_refractor_velocity)]
+        views_list = [partial(self.plot_gather, sort_by=sort_by, threshold=threshold), self.plot_refractor_velocity]
         return views_list, kwargs
 
     def binarize(self, gather, metric_values, threshold=None):
@@ -318,7 +317,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         super().binarize(gather, np.abs(metric_values), threshold)
 
 class FirstBreaksCorrelations(RefractorVelocityMetric):
-    """Mean Pearson correlation coeffitient of trace with mean hodograph in window around the first break.
+    """Mean Pearson correlation coefficient of trace with mean hodograph in window around the first break.
 
     Parameters
     ----------
@@ -347,8 +346,7 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
 
     def get_views(self, sort_by=None, threshold=None, **kwargs):
         """Return plotters of the metric views and parse `plot_gather_window` kwargs for interactive map plotting."""
-        views_list = [partial(self.plot_gather_window, sort_by=sort_by, threshold=threshold),
-                      partial(self.plot_mean_hodograph)]
+        views_list = [partial(self.plot_gather_window, sort_by=sort_by, threshold=threshold), self.plot_mean_hodograph]
         return views_list, kwargs
 
     @staticmethod
