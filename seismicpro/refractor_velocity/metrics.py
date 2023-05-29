@@ -228,7 +228,7 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
         min_value, max_value = get_quantile(gather_data, np.array([0, 1]))
         min_value, max_value = np.atleast_2d(min_value), np.atleast_2d(max_value)
         gather_data = scale_maxabs(gather_data, min_value=min_value, max_value=max_value, clip=False, eps=1e-10)
-        return get_hodograph(gather_data, offsets, picking_times, sample_interval, delay, fill_value=0)
+        return get_hodograph(gather_data, offsets, sample_interval, delay, picking_times, fill_value=0)
 
     def calc(self, gather, refractor_velocity):
         """Return signal amplitudes at first break times.
@@ -294,8 +294,8 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         """
         _ = refractor_velocity
         phases = hilbert(gather.data, axis=1)
-        fb_phases = get_hodograph(phases, gather.offsets, gather[self.first_breaks_header],
-                                  gather.sample_interval, gather.delay, interpolate=True, fill_value=0)
+        fb_phases = get_hodograph(phases, gather.offsets, gather.sample_interval, gather.delay,
+                                  gather[self.first_breaks_header], interpolate=True, fill_value=0)
         angles = np.angle(fb_phases)
         # Map angles to range (target - pi, target + pi]
         if self.target > 0:
@@ -355,7 +355,7 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         res = np.empty((n_traces, n_samples), dtype=data.dtype)
         for i in range(n_samples):
             dt = -window_size // 2 + sample_interval * i
-            res[:, i] = get_hodograph(data, offsets, times + dt, sample_interval, delay, fill_value=np.nan)
+            res[:, i] = get_hodograph(data, offsets, sample_interval, delay, times + dt, fill_value=np.nan)
         return res
 
     @staticmethod
