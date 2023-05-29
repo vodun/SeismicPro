@@ -27,7 +27,7 @@ setup(
     install_requires=[
         'numpy>=1.20',
         'scipy>=1.7',
-        'numba>=0.55',
+        'numba>=0.57',
         'pandas>=1.3',
         'polars[pyarrow]>=0.17.5',
         'scikit-learn>=0.23.2',
