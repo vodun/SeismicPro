@@ -57,10 +57,15 @@ class NearSurfaceModel:
         # Define initial model
         field_params_array = field_params[rvf_list[0].param_names].to_numpy()
         slownesses = 1000 / field_params_array[:, self.n_refractors:]
-        if init_weathering_velocity is not None:
-            weathering_slowness = np.maximum(1000 / init_weathering_velocity, slownesses[:, 0])
-        else:
+        if init_weathering_velocity is None:
             weathering_slowness = 2 * slownesses[:, 0]
+        elif isinstance(init_weathering_velocity, str):
+            # TODO: handle list of surveys
+            v0_map = survey_list[0].construct_header_map(init_weathering_velocity, by="shot").map_data
+            v0_interpolator = IDWInterpolator(v0_map.index.to_frame().to_numpy(), v0_map.to_numpy(), neighbors=8)
+            weathering_slowness = np.maximum(1000 / v0_interpolator(unique_coords), slownesses[:, 0])
+        else:
+            weathering_slowness = np.maximum(1000 / init_weathering_velocity, slownesses[:, 0])
 
         intercepts = [field_params_array[:, 0]]
         for i in range(1, self.n_refractors):

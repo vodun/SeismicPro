@@ -10,7 +10,7 @@ import numpy as np
 
 from seismicpro import Survey, aggregate_segys
 from seismicpro.const import HDR_TRACE_POS
-from .test_gather import compare_gathers
+from .test_gather import assert_gathers_equal
 
 
 @pytest.mark.parametrize('name', ['some_name', None])
@@ -33,8 +33,7 @@ def test_dump_single_gather(segy_path, tmp_path, name, retain_parent_segy_header
     drop_columns = ["TRACE_SEQUENCE_FILE", HDR_TRACE_POS]
     drop_columns += ["TRACE_SAMPLE_INTERVAL"] if "TRACE_SAMPLE_INTERVAL" in expected_gather.headers.columns else []
 
-    compare_gathers(expected_gather, dumped_gather, drop_cols=drop_columns, check_types=True,
-                    same_survey=False)
+    assert_gathers_equal(expected_gather, dumped_gather, drop_cols=drop_columns, same_survey=False)
 
     if retain_parent_segy_headers:
         expected_survey = Survey(segy_path, header_index=header_index, header_cols='all', validate=False)
@@ -42,9 +41,9 @@ def test_dump_single_gather(segy_path, tmp_path, name, retain_parent_segy_header
         full_exp_headers = full_exp_headers.loc[dump_index:dump_index].reset_index()
         full_dump_headers = Survey(files[0], header_index=header_index, header_cols='all', validate=False).headers
         full_dump_headers = full_dump_headers.reset_index()
-        sample_rates = full_dump_headers['TRACE_SAMPLE_INTERVAL']
-        assert np.unique(sample_rates) > 1
-        assert np.allclose(sample_rates[0] / 1000, expected_survey.sample_rate)
+        sample_intervals = full_dump_headers['TRACE_SAMPLE_INTERVAL']
+        assert np.unique(sample_intervals) > 1
+        assert np.allclose(sample_intervals[0] / 1000, expected_survey.sample_interval)
         drop_cols = ["TRACE_SEQUENCE_FILE", "TRACE_SAMPLE_INTERVAL", HDR_TRACE_POS]
         full_exp_headers.drop(columns=drop_cols, inplace=True)
         full_dump_headers.drop(columns=drop_cols, inplace=True)
@@ -104,5 +103,4 @@ def test_aggregate_segys(segy_path, tmp_path, mode, indices):
         expected_gather.sort(by='TraceNumber')
         dumped_gather = dumped_survey.get_gather(ix)
         dumped_gather.sort(by='TraceNumber')
-        compare_gathers(expected_gather, dumped_gather, drop_cols=drop_columns, check_types=True,
-                        same_survey=False)
+        assert_gathers_equal(expected_gather, dumped_gather, drop_cols=drop_columns, same_survey=False)

@@ -1,5 +1,9 @@
 """Implements metrics for quality control of stacking velocities.
 
+These metrics are supposed to be used in :func:`~stacking_velocity_field.StackingVelocityField.qc` method which
+iterates over groups of neighboring stacking velocities and automatically provides metrics with all required context
+for interactive plotting.
+
 In order to define your own metric you need to inherit a new class from `StackingVelocityMetric` and do the following:
 * Set an `is_window_metric` class attribute to `True` or `False` depending on whether your metric needs all stacking
   velocities in a spatial window or only the central one in its `calc` method. In the first case, the central velocity
@@ -119,7 +123,6 @@ class StackingVelocityMetric(Metric):
 
 class HasInversions(StackingVelocityMetric):
     """Check if a stacking velocity decreases at some time."""
-    name = "has_inversions"
     min_value = 0
     max_value = 1
     is_lower_better = True
@@ -150,7 +153,6 @@ class HasInversions(StackingVelocityMetric):
 
 class MaxAccelerationDeviation(StackingVelocityMetric):
     """Calculate maximal absolute deviation of instantaneous acceleration from the mean acceleration over all times."""
-    name = "max_acceleration_deviation"
     min_value = 0
     max_value = None
     is_lower_better = None
@@ -179,7 +181,6 @@ class MaxAccelerationDeviation(StackingVelocityMetric):
 
 class MaxStandardDeviation(StackingVelocityMetric):
     """Calculate maximal spatial velocity standard deviation in a window over all times."""
-    name = "max_standard_deviation"
     min_value = 0
     max_value = None
     is_lower_better = True
@@ -203,7 +204,6 @@ class MaxStandardDeviation(StackingVelocityMetric):
 class MaxRelativeVariation(StackingVelocityMetric):
     """Calculate maximal absolute relative difference between central stacking velocity and the average of all
     remaining velocities in the window over all times."""
-    name = "max_relative_variation"
     min_value = 0
     max_value = None
     is_lower_better = True

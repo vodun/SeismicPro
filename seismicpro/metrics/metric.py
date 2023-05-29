@@ -40,13 +40,13 @@ class Metric:
     * Optionally redefine `__init__` to store some additional metric parameters,
     * Optionally implement one or more views and list them in the `views` attribute,
     * Optionally redefine `bind_context` method which accepts a parent metric map and the provided calculation context
-      as its parameters and transforms them to be further be used by views,
+      as its parameters and transforms them to be further used by views,
     * Optionally set other metric attributes for future convenience.
 
     Parameters
     ----------
     name : str, optional
-        Metric name, overrides default name if given.
+        Metric name, overrides default name if given. Defaults to the name of the metric class.
 
     Attributes
     ----------
@@ -77,7 +77,6 @@ class Metric:
     has_bound_context : bool
         Whether the metric has bound execution context and can be used for interactive metric map plotting.
     """
-    name = "metric"
     is_lower_better = None
     min_value = None
     max_value = None
@@ -92,6 +91,8 @@ class Metric:
             if not isinstance(name, str):
                 raise TypeError("Metric name name must be a string")
             self.name = name
+        else:
+            self.name = type(self).__name__
         self.context = {}
         self.has_bound_context = False
 
@@ -221,7 +222,7 @@ def initialize_metrics(metrics, metric_class=Metric):
         raise ValueError("At least one metric should be passed")
     if not all(is_metric(metric, metric_class=metric_class) for metric in metrics):
         raise TypeError(f"All passed metrics must be either instances or subclasses of {metric_class.__name__}")
+    metrics = [metric() if isinstance(metric, type) else metric for metric in metrics]
     if len({metric.name for metric in metrics}) != len(metrics):
         raise ValueError("Passed metrics must have different names")
-    metrics = [metric() if isinstance(metric, type) else metric for metric in metrics]
     return metrics, is_single_metric

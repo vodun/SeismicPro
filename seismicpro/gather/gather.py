@@ -1,6 +1,7 @@
 """Implements Gather class that represents a group of seismic traces that share some common acquisition parameter"""
 
 import os
+import math
 import warnings
 from itertools import cycle
 from textwrap import dedent
@@ -18,7 +19,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
 from .utils import correction, normalization, gain
-from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
+from .utils import convert_times_to_mask, convert_mask_to_pick, mute_gather, make_origins
 from ..utils import (to_list, get_coords_cols, get_first_defined, set_ticks, format_subplot_yticklabels,
                      set_text_formatting, add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
@@ -34,9 +35,9 @@ from ..velocity_spectrum.utils.coherency_funcs import stacked_amplitude
 class Gather(TraceContainer, SamplesContainer):
     """A class representing a single seismic gather.
 
-    A gather is a collection of seismic traces that share some common acquisition parameter (same index value of the
-    generating survey header in our case). Unlike `Survey`, `Gather` instance stores loaded seismic traces along with
-    a corresponding subset of its parent survey header.
+    A gather is a collection of seismic traces that share some common acquisition parameter (usually common values of
+    trace headers used as an index in their survey). Unlike `Survey`, `Gather` instances store loaded seismic traces
+    along with the corresponding subset of the parent survey trace headers.
 
     `Gather` instance is generally created by calling one of the following methods of a `Survey`, `SeismicIndex` or
     `SeismicDataset`:
@@ -44,11 +45,11 @@ class Gather(TraceContainer, SamplesContainer):
     2. `get_gather` - to get a particular gather by its index value.
 
     Most of the methods change gather data inplace, thus `Gather.copy` may come in handy to keep the original gather
-    available.
+    intact.
 
     Examples
     --------
-    Let's load a randomly selected common source gather, sort it by offset and plot:
+    Load a randomly selected common source gather, sort it by offset and plot:
     >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
     >>> gather = survey.sample_gather().sort(by="offset")
     >>> gather.plot()
@@ -56,33 +57,43 @@ class Gather(TraceContainer, SamplesContainer):
     Parameters
     ----------
     headers : pd.DataFrame
-        A subset of parent survey header with common index value defining the gather.
+        Headers of gather traces. Must be a subset of parent survey trace headers.
     data : 2d np.ndarray
-        Trace data of the gather with (num_traces, trace_length) layout.
-    samples : 1d np.ndarray of floats
-        Recording time for each trace value. Measured in milliseconds.
+        Trace data of the gather with (n_traces, n_samples) layout.
+    sample_interval : float
+        Sample interval of seismic traces. Measured in milliseconds.
     survey : Survey
         A survey that generated the gather.
+    delay : float, optional, defaults to 0
+        Delay recording time of seismic traces. Measured in milliseconds.
 
     Attributes
     ----------
     headers : pd.DataFrame
-        A subset of parent survey header with common index value defining the gather.
+        Headers of gather traces.
     data : 2d np.ndarray
-        Trace data of the gather with (num_traces, trace_length) layout.
+        Trace data of the gather with (n_traces, n_samples) layout.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
-    sample_rate : float
-        Sample rate of seismic traces. Measured in milliseconds.
+    sample_interval : float
+        Sample interval of seismic traces. Measured in milliseconds.
+    delay : float
+        Delay recording time of seismic traces. Measured in milliseconds.
     survey : Survey
         A survey that generated the gather.
     sort_by : None or str or list of str
         Headers that were used for gather sorting. If `None`, no sorting was performed.
     """
-    def __init__(self, headers, data, samples, survey):
+    def __init__(self, headers, data, sample_interval, survey, delay=0):
+        if sample_interval <= 0:
+            raise ValueError("Sample interval must be positive")
+        if delay < 0:
+            raise ValueError("Delay must be non-negative")
         self.headers = headers
         self.data = data
-        self.samples = samples
+        self.samples = self.create_samples(data.shape[1], sample_interval, delay)
+        self.sample_interval = sample_interval
+        self.delay = delay
         self.survey = survey
         self.sort_by = None
 
@@ -95,14 +106,6 @@ class Gather(TraceContainer, SamplesContainer):
         if len(indices) != 1:
             return None
         return indices[0]
-
-    @property
-    def sample_rate(self):
-        """"float: Sample rate of seismic traces. Measured in milliseconds."""
-        sample_rate = np.unique(np.diff(self.samples))
-        if len(sample_rate) == 1:
-            return sample_rate.item()
-        raise ValueError("`sample_rate` is not defined, since `samples` are not regular.")
 
     @property
     def offsets(self):
@@ -171,14 +174,15 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError('Either shot or receiver gathers can have elevation')
 
     def __getitem__(self, key):
-        """Either select gather headers values by their names or create a new `Gather` with specified traces and
+        """Either select values of gather headers by their names or create a new `Gather` with specified traces and
         samples depending on the key type.
 
         Notes
         -----
-        1. If the data after `__getitem__` is no longer sorted, `sort_by` attribute in the resulting `Gather` will be
-           set to `None`.
-        2. If headers selection is performed, the returned array will be 1d if a single header is selected and 2d
+        1. Only basic indexing and slicing is supported along the time axis in order to preserve constant sample rate.
+        2. If the traces are no longer sorted after `__getitem__`, `sort_by` attribute of the resulting `Gather` is set
+           to `None`.
+        3. If headers selection is performed, the returned array will be 1d if a single header is selected and 2d
            otherwise.
 
         Parameters
@@ -186,63 +190,69 @@ class Gather(TraceContainer, SamplesContainer):
         key : str, list of str, int, list, tuple, slice
             If str or list of str, gather headers to get as an `np.ndarray`. The returned array is 1d if a single
             header is selected and 2d otherwise.
-            Otherwise, indices of traces and samples to get. In this case, __getitem__ behavior almost coincides with
-            `np.ndarray` indexing and slicing except for cases, when resulting ndim is not preserved or joint
-            indexation of gather attributes becomes ambiguous (e.g. gather[[0, 1], [0, 1]]).
+            Otherwise, indices of traces and samples to get. In this case, `__getitem__` behavior almost coincides with
+            that of `np.ndarray`, except that only basic indexing and slicing is supported along the time axis in order
+            to preserve constant sample rate.
 
         Returns
         -------
         result : np.ndarray or Gather
-            Headers values or Gather with a specified subset of traces and samples.
+            Values of gather headers or a gather with the specified subset of traces and samples.
 
         Raises
         ------
         ValueError
-            If the resulting gather is empty, or data ndim has changed, or joint attribute indexation is ambiguous.
+            If the resulting gather is empty or the number of data dimensions has changed.
         """
         # If key is str or array of str, treat it as names of headers columns
-        keys_array = np.array(to_list(key))
-        if keys_array.dtype.type == np.str_:
+        if all(isinstance(item, str) for item in to_list(key)):
             return super().__getitem__(key)
 
-        # Perform traces and samples selection
-        key = (key, ) if not isinstance(key, tuple) else key
-        key = key + (slice(None), ) if len(key) == 1 else key
-        indices = ()
-        for axis_indexer, axis_shape in zip(key, self.shape):
-            if isinstance(axis_indexer, (int, np.integer)):
-                # Convert negative array index to a corresponding positive one
-                axis_indexer %= axis_shape
-                # Switch from simple indexing to a slice to keep array dims
-                axis_indexer = slice(axis_indexer, axis_indexer+1)
-            elif isinstance(axis_indexer, tuple):
-                # Force advanced indexing for `samples`
-                axis_indexer = list(axis_indexer)
-            indices = indices + (axis_indexer, )
+        # Split key into indexers of traces and samples
+        key = (key,) if not isinstance(key, tuple) else key
+        key = key + (slice(None),) if len(key) == 1 else key
+        if len(key) != 2 or any(indexer is None for indexer in key):
+            raise KeyError("Data ndim must not change")
+        traces_indexer, samples_indexer = key
 
-        data = self.data[indices]
-        if data.ndim != 2:
-            raise ValueError("Data ndim is not preserved or joint indexation of gather attributes becomes ambiguous "
-                             "after indexation")
-        if data.size == 0:
+        def int_to_slice(ix, size):
+            """Convert an integer index to a slice to be further used for array indexing, that will return a view and
+            preserve the number of array dimensions."""
+            if ix < 0:
+                ix += size
+            if (ix < 0) or (ix > size - 1):
+                raise IndexError("gather index out of range")
+            return slice(ix, ix + 1)
+
+        # Cast samples indexer to a slice so that possible advanced indexing is performed only along traces axis
+        if isinstance(samples_indexer, (int, np.integer)):
+            samples_indexer = int_to_slice(samples_indexer, self.n_samples)
+        if not isinstance(samples_indexer, slice):
+            raise KeyError("Only basic indexing and slicing is supported along the time axis")
+        delay_ix, _, samples_step = samples_indexer.indices(self.n_samples)
+        if samples_step < 0:
+            raise ValueError("Negative step is not allowed for samples slicing")
+
+        # Cast a single trace indexer to a slice
+        if isinstance(traces_indexer, (int, np.integer)):
+            traces_indexer = int_to_slice(traces_indexer, self.n_traces)
+
+        # Index data and make it C-contiguous since otherwise some numba functions may fail
+        data = np.require(self.data[traces_indexer, samples_indexer], requirements="C")
+        if data.size == 0:  # e.g. after empty slicing
             raise ValueError("Empty gather after indexation")
+        headers = self.headers.iloc[traces_indexer]
+        sample_interval = self.sample_interval * samples_step
+        gather = Gather(headers, data, sample_interval, delay=self.samples[delay_ix], survey=self.survey)
 
-        # Set indexed data attribute. Make it C-contiguous since otherwise some numba functions may fail
-        new_self = self.copy(ignore=['data', 'headers', 'samples'])
-        new_self.data = np.ascontiguousarray(data, dtype=self.data.dtype)
-
-        # The two-element `indices` tuple describes indices of traces and samples to be obtained respectively
-        new_self.headers = self.headers.iloc[indices[0]]
-        new_self.samples = self.samples[indices[1]]
-
-        # If the gather was sorted, verify that getitem does not break sorting
-        if new_self.sort_by is not None:
-            if isinstance(indices[0], slice):
-                if indices[0].step is not None and indices[0].step < 0: # Slice with negative step breaks sorting
-                    new_self.sort_by = None
-            elif (np.diff(indices[0]) < 0).any(): # Decreasing sequence of indices breaks sorting
-                new_self.sort_by = None
-        return new_self
+        # Preserve gather sorting if needed
+        if self.sort_by is not None:
+            if isinstance(traces_indexer, slice):
+                if traces_indexer.step is None or traces_indexer.step > 0:
+                    gather.sort_by = self.sort_by
+            elif (np.diff(traces_indexer) >= 0).all():
+                gather.sort_by = self.sort_by
+        return gather
 
     def __str__(self):
         """Print gather metadata including information about its survey, headers and traces."""
@@ -253,13 +263,21 @@ class Gather(TraceContainer, SamplesContainer):
         # Count the number of zero/constant traces
         n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
 
+        try:
+            sample_interval_str = f"{self.sample_interval} ms"
+            sample_rate_str = f"{self.sample_rate} Hz"
+        except ValueError:
+            sample_interval_str = "Irregular"
+            sample_rate_str = "Irregular"
+
         msg = f"""
         Parent survey path:          {self.survey.path}
         Parent survey name:          {self.survey.name}
 
         Number of traces:            {self.n_traces}
         Trace length:                {self.n_samples} samples
-        Sample rate:                 {self.sample_rate} ms
+        Sample interval:             {sample_interval_str}
+        Sample rate:                 {sample_rate_str}
         Times range:                 [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:               {offset_range}
 
@@ -298,14 +316,14 @@ class Gather(TraceContainer, SamplesContainer):
         ignore = set() if ignore is None else set(to_list(ignore))
         return super().copy(ignore | {"survey"})
 
-    @batch_method(target='for')
+    @batch_method(target="for", copy_src=False)
     def get_item(self, *args):
-        """An interface for `self.__getitem__` method."""
-        return self[args if len(args) > 1 else args[0]]
+        """A pipeline interface for `self.__getitem__` method."""
+        return self[args if len(args) > 1 else args[0]].copy()
 
-    def _post_filter(self, mask):
-        """Remove traces from gather data that correspond to filtered headers after `Gather.filter`."""
-        self.data = self.data[mask]
+    def _post_index(self, key):
+        """Index gather data by provided `key`."""
+        self.data = self.data[key]
 
     # Target set to `for` to avoid race condition when the same trace appears in two gathers (ex. supergathers)
     @batch_method(target='for', use_lock=True)
@@ -364,7 +382,7 @@ class Gather(TraceContainer, SamplesContainer):
         Parameters
         ----------
         path : str
-            The directory to dump the gather in.
+            A directory to dump the gather in.
         name : str, optional, defaults to None
             The name of the file. If `None`, the concatenation of the survey name and the value of gather index will
             be used.
@@ -381,7 +399,7 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If empty `name` was specified.
         """
-        parent_handler = self.survey.segy_handler
+        parent_handler = self.survey.loader.file_handler
 
         if name is None:
             # Use the first value of gather index to handle combined case
@@ -400,7 +418,7 @@ class Gather(TraceContainer, SamplesContainer):
         spec.format = parent_handler.format
         spec.tracecount = self.n_traces
 
-        sample_rate = np.int32(self.sample_rate * 1000) # Convert to microseconds
+        sample_interval = np.int32(self.sample_interval * 1000) # Convert to microseconds
         # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
         trace_ids = self["TRACE_SEQUENCE_FILE"] - 1
 
@@ -415,7 +433,7 @@ class Gather(TraceContainer, SamplesContainer):
             # Copy the binary header from the parent SEG-Y file and update it with samples data of the gather.
             # TODO: Check if other bin headers matter
             dump_handler.bin = parent_handler.bin
-            dump_handler.bin[segyio.BinField.Interval] = sample_rate
+            dump_handler.bin[segyio.BinField.Interval] = sample_interval
             dump_handler.bin[segyio.BinField.Samples] = self.n_samples
             dump_handler.bin[segyio.BinField.ExtSamples] = self.n_samples
 
@@ -429,7 +447,7 @@ class Gather(TraceContainer, SamplesContainer):
                 if retain_parent_segy_headers:
                     dump_handler.header[i] = parent_handler.header[trace_ids[i]]
                 dump_handler.header[i].update({**dict(zip(used_header_bytes, trace_headers)),
-                                               segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_rate,
+                                               segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_interval,
                                                segyio.TraceField.TRACE_SEQUENCE_FILE: i + 1})
         return self
 
@@ -535,8 +553,8 @@ class Gather(TraceContainer, SamplesContainer):
             mean = self.survey.mean
             std = self.survey.std
         else:
-            mean = self._apply_agg_func(func=np.mean, tracewise=tracewise, keepdims=True)
-            std = self._apply_agg_func(func=np.std, tracewise=tracewise, keepdims=True)
+            mean = self._apply_agg_func(func=np.nanmean, tracewise=tracewise, keepdims=True)
+            std = self._apply_agg_func(func=np.nanstd, tracewise=tracewise, keepdims=True)
         self.data = normalization.scale_standard(self.data, mean, std, np.float32(eps))
         return self
 
@@ -639,13 +657,13 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def pick_to_mask(self, first_breaks_col=HDR_FIRST_BREAK):
+    def pick_to_mask(self, first_breaks_header=HDR_FIRST_BREAK):
         """Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
         first arrivals and ones after for each trace.
 
         Parameters
         ----------
-        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+        first_breaks_header : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             A column of `self.headers` that contains first arrival times, measured in milliseconds.
 
         Returns
@@ -653,17 +671,18 @@ class Gather(TraceContainer, SamplesContainer):
         gather : Gather
             A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        mask = convert_times_to_mask(times=self[first_breaks_col], samples=self.samples).astype(np.int32)
+        mask = convert_times_to_mask(times=self[first_breaks_header], n_samples=self.n_samples,
+                                     sample_interval=self.sample_interval, delay=self.delay)
         gather = self.copy(ignore='data')
-        gather.data = mask
+        gather.data = mask.astype(np.float32)
         return gather
 
-    @batch_method(target='for', args_to_unpack='save_to')
-    def mask_to_pick(self, threshold=0.5, first_breaks_col=HDR_FIRST_BREAK, save_to=None):
+    @batch_method(target='threads', args_to_unpack='save_to')
+    def mask_to_pick(self, threshold=0.5, first_breaks_header=HDR_FIRST_BREAK, save_to=None):
         """Convert a first break mask saved in `data` into times of first arrivals.
 
-        For a given trace each value of the mask represents the probability that the corresponding index is greater
-        than the index of the first break.
+        For a given trace each value of the mask represents the probability that the corresponding time sample follows
+        the first break.
 
         Notes
         -----
@@ -674,7 +693,7 @@ class Gather(TraceContainer, SamplesContainer):
         ----------
         threshold : float, optional, defaults to 0.5
             A threshold for trace mask value to refer its index to be either pre- or post-first break.
-        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+        first_breaks_header : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Headers column to save first break times to.
         save_to : Gather or str, optional
             An extra `Gather` to save first break times to. Generally used to conveniently pass first break times from
@@ -685,56 +704,19 @@ class Gather(TraceContainer, SamplesContainer):
         Returns
         -------
         self : Gather
-            A gather with first break times in headers column defined by `first_breaks_col`.
+            A gather with first break times in headers column defined by `first_breaks_header`.
         """
-        picking_times = convert_mask_to_pick(mask=self.data, samples=self.samples, threshold=threshold)
-        self[first_breaks_col] = picking_times
+        picking_times = convert_mask_to_pick(mask=self.data, threshold=threshold, sample_interval=self.sample_interval,
+                                             delay=self.delay)
+        self[first_breaks_header] = picking_times
         if save_to is not None:
-            save_to[first_breaks_col] = picking_times
-        return self
-
-    @batch_method(target='for', use_lock=True)
-    def dump_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
-                          col_space=8, encoding="UTF-8"):
-        """ Save first break picking times to a file.
-
-        Each line in the resulting file corresponds to one trace, where all columns but
-        the last one store values from `trace_id_cols` headers and identify the trace
-        while the last column stores first break time from `first_breaks_col` header.
-
-        Parameters
-        ----------
-        path : str
-            Path to the file.
-        trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
-            Columns names from `self.headers` that act as trace id. These would be present in the file.
-        first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
-            Column name from `self.headers` where first break times are stored.
-        col_space : int, defaults to 8
-            The minimum width of each column.
-        encoding : str, optional, defaults to "UTF-8"
-            File encoding.
-
-        Returns
-        -------
-        self : Gather
-            Gather unchanged
-        """
-        rows = self[to_list(trace_id_cols) + [first_breaks_col]]
-
-        # SEG-Y specification states that all headers values are integers, but first break values can be float
-        row_fmt = '{:{col_space}.0f}' * (rows.shape[1] - 1) + '{:{col_space}.2f}\n'
-        fmt = row_fmt * len(rows)
-        rows_as_str = fmt.format(*rows.ravel(), col_space=col_space)
-
-        with open(path, 'a', encoding=encoding) as f:
-            f.write(rows_as_str)
+            save_to[first_breaks_header] = picking_times
         return self
 
     @batch_method(target="for", copy_src=False)  # pylint: disable-next=too-many-arguments
     def calculate_refractor_velocity(self, init=None, bounds=None, n_refractors=None, max_offset=None,
                                      min_velocity_step=1, min_refractor_size=1, loss="L1", huber_coef=20, tol=1e-5,
-                                     first_breaks_col=HDR_FIRST_BREAK, correct_uphole=None, **kwargs):
+                                     first_breaks_header=HDR_FIRST_BREAK, correct_uphole=None, **kwargs):
         """Fit a near-surface velocity model by offsets of traces and times of their first breaks.
 
         Notes
@@ -770,7 +752,7 @@ class Gather(TraceContainer, SamplesContainer):
             Coefficient for Huber loss function.
         tol : float, optional, defaults to 1e-5
             Precision goal for the value of loss in the stopping criterion.
-        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+        first_breaks_header : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `self.headers` where times of first break are stored.
         correct_uphole : bool, optional
             Whether to perform uphole correction by adding values of "SourceUpholeTime" header to times of first breaks
@@ -785,7 +767,7 @@ class Gather(TraceContainer, SamplesContainer):
         rv : RefractorVelocity
             Constructed near-surface velocity model.
         """
-        times = self[first_breaks_col]
+        times = self[first_breaks_header]
         if correct_uphole is None:
             correct_uphole = "SourceUpholeTime" in self.available_headers
         if correct_uphole:
@@ -821,17 +803,18 @@ class Gather(TraceContainer, SamplesContainer):
             muter = muter(self.coords)
         if not isinstance(muter, Muter):
             raise ValueError("muter must be of Muter or MuterField type")
-        self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets), samples=self.samples,
-                                fill_value=fill_value)
+        self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets),
+                                sample_interval=self.sample_interval, delay=self.delay, fill_value=fill_value)
         return self
 
     #------------------------------------------------------------------------#
     #             Vertical Velocity Spectrum calculation methods             #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="threads", copy_src=False)
-    def calculate_vertical_velocity_spectrum(self, velocities=None, window_size=50, mode="semblance",
-                                             max_stretch_factor=np.inf):
+    @batch_method(target="for", args_to_unpack="stacking_velocity", copy_src=False)
+    def calculate_vertical_velocity_spectrum(self, velocities=None, stacking_velocity=None, relative_margin=0.2,
+                                             velocity_step=50, window_size=50, mode='semblance',
+                                             max_stretch_factor=np.inf, interpolate=True):
         """Calculate vertical velocity spectrum for the gather.
 
         Notes
@@ -841,51 +824,69 @@ class Gather(TraceContainer, SamplesContainer):
 
         Examples
         --------
-        Calculate vertical velocity spectrum with default parameters: velocities evenly spaces around default stacking
+        Calculate vertical velocity spectrum with default parameters: velocities evenly spaced around default stacking
         velocity, 50 ms temporal window size, semblance coherency measure and no muting of hodograph stretching:
-        >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum()
-    
+        >>> spectrum = gather.calculate_vertical_velocity_spectrum()
+
         Calculate vertical velocity spectrum for 200 velocities from 2000 to 6000 m/s, temporal window size of 128 ms,
-        crosscorrelation coherency measure and muting stretching effects greater than 0.65:
-        >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum(
-                                                                velocities=np.linspace(2000, 6000, 200), 
-                                                                window_size=128, mode='CC', max_stretch_factor=0.65)
+        crosscorrelation coherency measure and muting of stretching effects greater than 65%:
+        >>> spectrum = gather.calculate_vertical_velocity_spectrum(velocities=np.linspace(2000, 6000, 200), mode='CC',
+                                                                   window_size=128, max_stretch_factor=0.65)
 
         Parameters
         ----------
-        velocities : 1d np.ndarray or None, optional, defaults to None.
-            Range of velocity values for which velocity spectrum is calculated. Measured in meters/seconds.
-            If not provided velocity range is inferred from const.DEFAULT_STACKING_VELOCITY evaluated for gather times
-            and then additionally extended by 20%. Spectrum velocities are evenly sampled from this range
-            with a step of 100 m/s.
+        velocities : 1d np.ndarray, optional, defaults to None
+            An array of stacking velocities to calculate the velocity spectrum for. Measured in meters/seconds. If not
+            provided, `stacking_velocity` is evaluated for gather times to estimate the velocity range being examined.
+            The resulting velocities are then evenly sampled from this range being additionally extended by
+            `relative_margin` * 100% in both directions with a step of `velocity_step`.
+        stacking_velocity : StackingVelocity or StackingVelocityField or str, optional,
+                            defaults to DEFAULT_STACKING_VELOCITY
+            Stacking velocity around which vertical velocity spectrum is calculated if `velocities` are not given.
+            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed, a
+            `StackingVelocity` corresponding to gather coordinates is fetched from it. May be `str` if called in a
+            pipeline: in this case it defines a component with stacking velocities to use.
+        relative_margin : float, optional, defaults to 0.2
+            Relative velocity margin to additionally extend the velocity range obtained from `stacking_velocity`: an
+            interval [`min_velocity`, `max_velocity`] is mapped to [(1 - `relative_margin`) * `min_velocity`,
+            (1 + `relative_margin`) * `max_velocity`].
+        velocity_step : float, optional, defaults to 50
+            A step between two adjacent velocities for which vertical velocity spectrum is calculated if `velocities`
+            are not passed. Measured in meters/seconds.
         window_size : int, optional, defaults to 50
             Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
-            the resulting velocity spectrum will be but to the detriment of small details. Measured in ms.
+            the resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
         mode: str, optional, defaults to 'semblance'
-            The measure for estimating hodograph coherency. 
-            The available options are: 
+            The measure for estimating hodograph coherency.
+            The available options are:
                 `semblance` or `NE`,
                 `stacked_amplitude` or `S`,
                 `normalized_stacked_amplitude` or `NS`,
                 `crosscorrelation` or `CC`,
-                `energy_normalized_crosscorrelation` or `ENCC`
+                `energy_normalized_crosscorrelation` or `ENCC`.
         max_stretch_factor : float, defaults to np.inf
-            Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            This mute is applied after nmo correction for each provided velocity and before coherency calculation.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
-            Reasonably good value is 0.65
+            Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO
+            correction. This mute is applied after NMO correction for each provided velocity and before coherency
+            calculation. The lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
+            Reasonably good value is 0.65.
+        interpolate: bool, optional, defaults to True
+            Whether to perform linear interpolation to retrieve amplitudes along hodographs. If `False`, an amplitude
+            at the nearest time sample is used.
 
         Returns
         -------
         vertical_velocity_spectrum : VerticalVelocitySpectrum
             Calculated vertical velocity spectrum.
         """
-        return VerticalVelocitySpectrum(gather=self, velocities=velocities, window_size=window_size, mode=mode,
-                                        max_stretch_factor=max_stretch_factor)
+        return VerticalVelocitySpectrum(gather=self, velocities=velocities, stacking_velocity=stacking_velocity,
+                                        relative_margin=relative_margin, velocity_step=velocity_step,
+                                        window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor,
+                                        interpolate=interpolate)
 
-    @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
-    def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, relative_margin=0.2,
-                                             window_size=50, mode="semblance", max_stretch_factor=np.inf):
+    @batch_method(target="for", args_to_unpack="stacking_velocity", copy_src=False)
+    def calculate_residual_velocity_spectrum(self, stacking_velocity, relative_margin=0.2, velocity_step=25,
+                                             window_size=50, mode="semblance", max_stretch_factor=np.inf,
+                                             interpolate=True):
         """Calculate residual velocity spectrum for the gather and provided stacking velocity.
 
         Notes
@@ -893,62 +894,63 @@ class Gather(TraceContainer, SamplesContainer):
         A detailed description of residual velocity spectrum and its computation algorithm can be found in
         :func:`~velocity_spectrum.ResidualVelocitySpectrum` docs.
 
-
         Examples
         --------
         Calculate residual velocity spectrum for a gather and a stacking velocity, loaded from a file:
         >>> velocity = StackingVelocity.from_file(velocity_path)
-        >>> residual_spectrum = gather.calculate_residual_velocity_spectrum(velocity, n_velocities=100, window_size=8)
+        >>> spectrum = gather.calculate_residual_velocity_spectrum(velocity, velocity_step=100, window_size=32)
 
         Parameters
         ----------
         stacking_velocity : StackingVelocity or StackingVelocityField or str
-            Stacking velocity around which residual velocity spectrum is calculated. 
-            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed, 
-            a `StackingVelocity` corresponding to gather coordinates is fetched from it.
-            May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
-        n_velocities : int, optional, defaults to 140
-            The number of velocities to compute residual velocity spectrum for.
+            Stacking velocity around which residual velocity spectrum is calculated. `StackingVelocity` instance is
+            used directly. If `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather
+            coordinates is fetched from it. May be `str` if called in a pipeline: in this case it defines a component
+            with stacking velocities to use.
         relative_margin : float, optional, defaults to 0.2
-            Relative velocity margin, that determines the velocity range for residual spectrum calculation 
-            for each time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
+            Relative velocity margin, that determines the velocity range for velocity spectrum calculation for each
+            time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
+        velocity_step : float, optional, defaults to 25
+            A step between two adjacent velocities for which residual velocity spectrum is calculated. Measured in
+            meters/seconds.
         window_size : int, optional, defaults to 50
-            Temporal window size used for residual velocity spectrum calculation. Measured in ms.
-            The higher the `window_size` is, the smoother the resulting spectrum will be but to the
-            detriment of small details.
+            Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
+            the resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
         mode: str, optional, defaults to 'semblance'
-            The measure for estimating hodograph coherency. 
-            The available options are: 
+            The measure for estimating hodograph coherency.
+            The available options are:
                 `semblance` or `NE`,
                 `stacked_amplitude` or `S`,
                 `normalized_stacked_amplitude` or `NS`,
                 `crosscorrelation` or `CC`,
-                `energy_normalized_crosscorrelation` or `ENCC`
+                `energy_normalized_crosscorrelation` or `ENCC`.
         max_stretch_factor : float, defaults to np.inf
-            Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            This mute is applied after nmo correction for each provided velocity and before coherency calculation.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
-            Reasonably good value is 0.65
+            Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO
+            correction. This mute is applied after NMO correction for each provided velocity and before coherency
+            calculation. The lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
+            Reasonably good value is 0.65.
+        interpolate: bool, optional, defaults to True
+            Whether to perform linear interpolation to retrieve amplitudes along hodographs. If `False`, an amplitude
+            at the nearest time sample is used.
 
         Returns
         -------
         residual_velocity_spectrum : ResidualVelocitySpectrum
             Calculated residual velocity spectrum.
         """
-        if isinstance(stacking_velocity, StackingVelocityField):
-            stacking_velocity = stacking_velocity(self.coords)
-        return ResidualVelocitySpectrum(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
-                                        window_size=window_size, relative_margin=relative_margin, mode=mode,
-                                        max_stretch_factor=max_stretch_factor)
+        return ResidualVelocitySpectrum(gather=self, stacking_velocity=stacking_velocity,
+                                        relative_margin=relative_margin, velocity_step=velocity_step,
+                                        window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor,
+                                        interpolate=interpolate)
 
     #------------------------------------------------------------------------#
     #                           Gather corrections                           #
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads")
-    def apply_statics(self, statics_col, fill_value=0, event_headers=None):
-        trace_delays = -self[statics_col]
-        trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)
+    def apply_statics(self, statics_header, fill_value=0, event_headers=None):
+        trace_delays = -self[statics_header]
+        trace_delays_samples = np.rint(trace_delays / self.sample_interval).astype(np.int32)
         self.data = correction.apply_lmo(self.data, trace_delays_samples, fill_value)
         if event_headers is not None:
             self[to_list(event_headers)] += trace_delays.reshape(-1, 1)
@@ -968,7 +970,7 @@ class Gather(TraceContainer, SamplesContainer):
         delay : float, optional, defaults to 100
             An extra delay in milliseconds introduced in each trace, positive values result in shifting gather traces
             down. Used to center the first breaks hodograph around the delay value instead of 0.
-        fill_value : float, optional, defaults to 0
+        fill_value : float, optional, defaults to np.nan
             Value used to fill the amplitudes outside the gather bounds after moveout.
         event_headers : str, list, or None, optional, defaults to None
             Headers columns which will be LMO-corrected inplace.
@@ -1000,14 +1002,14 @@ class Gather(TraceContainer, SamplesContainer):
             correct_uphole = "SourceUpholeTime" in self.available_headers and refractor_velocity.is_uphole_corrected
         if correct_uphole:
             trace_delays += self["SourceUpholeTime"]
-        trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)
+        trace_delays_samples = np.rint(trace_delays / self.sample_interval).astype(np.int32)
         self.data = correction.apply_lmo(self.data, trace_delays_samples, fill_value)
         if event_headers is not None:
             self[to_list(event_headers)] += trace_delays.reshape(-1, 1)
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity, mute_crossover=False, max_stretch_factor=np.inf, fill_value=np.nan):
+    def apply_nmo(self, stacking_velocity, max_stretch_factor=np.inf, interpolate=True, fill_value=np.nan):
         """Perform gather normal moveout correction using the given stacking velocity.
 
         Notes
@@ -1019,16 +1021,17 @@ class Gather(TraceContainer, SamplesContainer):
         stacking_velocity : int, float, StackingVelocity, StackingVelocityField or str
             Stacking velocities to perform NMO correction with. `StackingVelocity` instance is used directly. If
             `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather coordinates is
-            fetched from it. If `int` or `float` then constant-velocity correction is performed.
-            May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
-        mute_crossover: bool, optional, defaults to False
-            Whether to mute areas where the time reversal occurred after nmo corrections.
-        max_stretch_factor : float, defaults to np.inf
-            Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
-            Reasonably good value is 0.65
+            fetched from it. If `int` or `float` then constant-velocity correction is performed. May be `str` if called
+            in a pipeline: in this case it defines a component with stacking velocities to use.
+        max_stretch_factor : float, optional, defaults to np.inf
+            Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO
+            correction. The lower the value, the stronger the mute. In case np.inf (default) only areas where time
+            reversal occurred are muted. Reasonably good value is 0.65.
+        interpolate: bool, optional, defaults to True
+            Whether to perform linear interpolation to retrieve amplitudes along hodographs. If `False`, an amplitude
+            at the nearest time sample is used.
         fill_value : float, optional, defaults to np.nan
-            Value used to fill the amplitudes outside the gather bounds after moveout.
+            Fill value to use if hodograph time is outside the gather bounds.
 
         Returns
         -------
@@ -1040,16 +1043,22 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If wrong type of `stacking_velocity` is passed.
         """
-        if isinstance(stacking_velocity, (int, float)):
-            stacking_velocity = StackingVelocity.from_constant_velocity(stacking_velocity)
+        if isinstance(stacking_velocity, (int, float, np.number)):
+            stacking_velocity = np.float32(stacking_velocity / 1000)  # from m/s to m/ms
+            self.data = correction.apply_constant_velocity_nmo(self.data, self.offsets, self.sample_interval,
+                                                               self.delay, self.times, stacking_velocity,
+                                                               max_stretch_factor, interpolate, fill_value)
+            return self
+
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
         if not isinstance(stacking_velocity, StackingVelocity):
             raise ValueError("stacking_velocity must be of int, float, StackingVelocity or StackingVelocityField type")
 
-        velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
-        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms,
-                                         self.sample_rate, mute_crossover, max_stretch_factor, fill_value)
+        velocities = stacking_velocity(self.times) / 1000  # from m/s to m/ms
+        velocities_grad = np.gradient(velocities, self.sample_interval)
+        self.data = correction.apply_nmo(self.data, self.offsets, self.sample_interval, self.delay, self.times,
+                                         velocities, velocities_grad, max_stretch_factor, interpolate, fill_value)
         return self
 
     #------------------------------------------------------------------------#
@@ -1103,33 +1112,25 @@ class Gather(TraceContainer, SamplesContainer):
     def stack(self, amplify_factor=0):
         """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
 
-        The gather being stacked must contain traces from a single bin. The resulting gather will contain a single
-        trace with `headers` matching those of the first input trace.
+        The resulting gather will contain a single trace with `headers` matching those of the first input trace.
 
         Parameters
         ----------
         amplify_factor : float in range [0, 1], optional, defaults to 0
             Amplifying factor which affects the normalization of the sum of hodographs amplitudes.
-            The amplitudes sum is multiplied by amplify_factor/sqrt(N) + (1 - amplify_factor)/N, 
-            where N is the number of live(non muted) amplitudes. Acts as the coherency amplifier for long hodographs.
-            Note that in case amplify_factor=0 (default), sum of trace amplitudes is simply divided by N, 
-            so that stack amplitude is the average of ensemble amplitudes. Must be in [0, 1] range.
+            The amplitudes sum is multiplied by amplify_factor/sqrt(N) + (1 - amplify_factor)/N, where N is the number
+            of live (non muted) amplitudes. Acts as the coherency amplifier for long hodographs. Note that in case
+            amplify_factor=0 (default), sum of trace amplitudes is simply divided by N, so that stack amplitude is the
+            average of ensemble amplitudes. Must be in [0, 1] range.
 
         Returns
         -------
         gather : Gather
             Stacked gather.
         """
-        lines = self[["INLINE_3D", "CROSSLINE_3D"]]
-        if (lines != lines[0]).any():
-            raise ValueError("Only a single CDP gather can be stacked")
-
         amplify_factor = np.clip(amplify_factor, 0, 1)
-        # Preserve headers of the first trace of the gather being stacked
-        self.headers = self.headers.iloc[[0]]
-
-        self.data = stacked_amplitude(self.data, amplify_factor, abs=False)[0]
-        self.data = self.data.reshape(1, -1)
+        self.headers = self.headers.iloc[[0]]  # Preserve headers of the first trace of the gather being stacked
+        self.data = stacked_amplitude(self.data, amplify_factor, abs=False)[0].reshape(1, -1)
         return self
 
     def crop(self, origins, crop_shape, n_crops=1, stride=None, pad_mode='constant', **kwargs):
@@ -1173,8 +1174,8 @@ class Gather(TraceContainer, SamplesContainer):
     def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
         """Filter frequency spectrum of the gather.
 
-        Can act as a lowpass, bandpass or highpass filter. `low` and `high` serve as the range for the remaining
-        frequencies and can be passed either solely or together.
+        `low` and `high` define the range of the remaining signal frequencies. If both of them are given, acts as a
+        bandpass filter. If only one of them is given, acts as a highpass or lowpass filter respectively.
 
         Examples
         --------
@@ -1194,14 +1195,14 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        low : int, optional
-            Lower bound for the remaining frequencies
-        high : int, optional
-            Upper bound for the remaining frequencies
-        filter_size : int, defaults to 81
-            The length of the filter
+        low : float, optional
+            Lower bound for the remaining frequencies.
+        high : float, optional
+            Upper bound for the remaining frequencies.
+        filter_size : int, optional, defaults to 81
+            The length of the filter.
         kwargs : misc, optional
-            Additional keyword arguments to the `scipy.firwin`
+            Additional keyword arguments to the `scipy.firwin`.
 
         Returns
         -------
@@ -1213,44 +1214,48 @@ class Gather(TraceContainer, SamplesContainer):
         cutoffs = [cutoff for cutoff in [low, high] if cutoff is not None]
 
         # Construct the filter and flip it since opencv computes crosscorrelation instead of convolution
-        kernel = firwin(filter_size, cutoffs, pass_zero=pass_zero, fs=1000 / self.sample_rate, **kwargs)[::-1]
+        kernel = firwin(filter_size, cutoffs, pass_zero=pass_zero, fs=self.sample_rate, **kwargs)[::-1]
         cv2.filter2D(self.data, dst=self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
         return self
 
     @batch_method(target="threads")
-    def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
-        """Change sample rate of traces in the gather.
+    def resample(self, new_sample_interval, kind=3, enable_anti_aliasing=True):
+        """Change sample interval of traces in the gather.
 
-        This implies increasing or decreasing the number of samples in each trace. In case new sample rate is greater
-        than the current one, anti-aliasing filter is optionally applied to avoid frequency aliasing.
+        This method changes the number of samples in each trace if the new sample interval differs from the current
+        one. If downsampling is performed, an anti-aliasing filter can optionally be applied to avoid frequency
+        aliasing.
 
         Parameters
         ----------
-        new_sample_rate : float
-            New sample rate
-        kind : int or str, defaults to 3
+        new_sample_interval : float
+            New sample interval of seismic traces.
+        kind : int or str, optional, defaults to 3
             The interpolation method to use.
-            If `int`, use piecewise polynomial interpolation with degree `kind`;
-            if `str`, delegate interpolation to scipy.interp1d with mode `kind`.
-        anti_aliasing : bool, defaults to True
+            If `int`, use piecewise polynomial interpolation with degree `kind`.
+            If `str`, delegate interpolation to scipy.interp1d with mode `kind`.
+        enable_anti_aliasing : bool, optional, defaults to True
             Whether to apply anti-aliasing filter or not. Ignored in case of upsampling.
 
         Returns
         -------
         self : Gather
-            `self` with new sample rate
+            Resampled gather.
         """
-        current_sample_rate = self.sample_rate
+        current_sample_interval = self.sample_interval
+        if current_sample_interval == new_sample_interval:
+            return self
 
         # Anti-aliasing filter is optionally applied during downsampling to avoid frequency aliasing
-        if new_sample_rate > current_sample_rate and anti_aliasing:
+        if enable_anti_aliasing and new_sample_interval > current_sample_interval:
             # Smoothly attenuate frequencies starting from 0.8 of the new Nyquist frequency so that all frequencies
-            # above are zeroed out
-            nyquist_frequency = 1000 / (2 * new_sample_rate)
-            filter_size = int(40 * new_sample_rate / current_sample_rate)
-            self.bandpass_filter(high=0.9 * nyquist_frequency, filter_size=filter_size, window="hann")
+            # above the new Nyquist frequency are zeroed out
+            nyquist_frequency = 1000 / (2 * new_sample_interval)
+            filter_size = int(40 * new_sample_interval / current_sample_interval)
+            self.bandpass_filter(high=0.9*nyquist_frequency, filter_size=filter_size, window="hann")
 
-        new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, self.samples.dtype)
+        new_n_samples = math.floor((self.samples[-1] - self.samples[0]) / new_sample_interval) + 1
+        new_samples = self.create_samples(new_n_samples, new_sample_interval, self.delay)
 
         if isinstance(kind, int):
             data_resampled = piecewise_polynomial(new_samples, self.samples, self.data, kind)
@@ -1258,6 +1263,7 @@ class Gather(TraceContainer, SamplesContainer):
             data_resampled = scipy.interpolate.interp1d(self.samples, self.data, kind=kind)(new_samples)
 
         self.data = data_resampled
+        self.sample_interval = new_sample_interval
         self.samples = new_samples
         return self
 
@@ -1277,7 +1283,7 @@ class Gather(TraceContainer, SamplesContainer):
         Raises
         ------
         ValueError
-            If window_size is less than (3 * sample_rate) milliseconds or larger than trace length.
+            If window_size is less than 2 * `sample_interval` milliseconds or larger than trace length.
             If mode is neither 'rms' nor 'abs'.
 
         Returns
@@ -1286,13 +1292,13 @@ class Gather(TraceContainer, SamplesContainer):
             Gather with AGC applied to its data.
         """
         # Cast window from ms to samples
-        window_size_samples = int(window_size // self.sample_rate) + 1
+        window_size_samples = int(window_size // self.sample_interval) + 1
 
         if mode not in ['abs', 'rms']:
             raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
         if (window_size_samples < 3) or (window_size_samples > self.n_samples):
-            raise ValueError(f'window should be at least {3*self.sample_rate} milliseconds and'
-                             f' {(self.n_samples-1)*self.sample_rate} at most, but {window_size} was given')
+            raise ValueError(f'window_size should be at least {2*self.sample_interval} milliseconds and '
+                             f'{(self.n_samples-1)*self.sample_interval} at most, but {window_size} was given')
         self.data = gain.apply_agc(data=self.data, window_size=window_size_samples, mode=mode)
         return self
 
@@ -1446,9 +1452,10 @@ class Gather(TraceContainer, SamplesContainer):
             - Any additional arguments for `matplotlib.axes.Axes.scatter`.
             If some dictionary value is array-like, each its element will be associated with the corresponding header.
             Otherwise, the single value will be used for all the scatter plots.
-        top_header : str, optional, defaults to None
+        top_header : str, array-like, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
-            The name of a header whose values will be plotted on top of the gather plot.
+            If str, the name of a header whose values will be plotted on top of the gather plot.
+            If array-like, the value for each trace that will be plotted on top of the gather plot.
         masks : array-like, str, dict or Gather, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
             Mask or list of masks to plot on top of the gather plot.
@@ -1647,7 +1654,17 @@ class Gather(TraceContainer, SamplesContainer):
         # Add a top subplot for given header if needed and set plot title
         top_ax = ax
         if top_header is not None:
-            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header], y_ticker=y_ticker)
+            if isinstance(top_header, str):
+                header_values = self[top_header]
+            elif isinstance(top_header, (np.ndarray, list, tuple)) and len(top_header) == self.n_traces:
+                header_values = top_header
+            else:
+                msg = f"`top_header` should be `str`, `np.ndarray`, `list` or `tuple` not `{type(top_header)}`"
+                warnings.warn(msg)
+                header_values = None
+
+            if header_values is not None:
+                top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=header_values, y_ticker=y_ticker)
 
         # Set axis ticks.
         self._set_x_ticks(ax, tick_src=x_tick_src, ticker=x_ticker)
@@ -1656,7 +1673,8 @@ class Gather(TraceContainer, SamplesContainer):
         top_ax.set_title(**{'label': None, **title})
 
         if len(ax.get_legend_handles_labels()[0]):
-            ax.legend()
+            # Define legend position to speed up plotting for huge gathers
+            ax.legend(loc='upper right')
 
     def _process_masks(self, masks):
         colors_iterator = cycle(['tab:red', 'tab:blue', 'tab:orange', 'tab:green', 'tab:purple', 'tab:pink',
@@ -1728,7 +1746,7 @@ class Gather(TraceContainer, SamplesContainer):
             header = kwargs.pop("headers")
             label = kwargs.pop("label", header)
             process_outliers = kwargs.pop("process_outliers", "none")
-            y_coords = times_to_indices(self[header], self.samples, round=False)
+            y_coords = self.times_to_indices(self[header])
             if process_outliers == "clip":
                 y_coords = np.clip(y_coords, 0, self.n_samples - 1)
             elif process_outliers == "discard":
