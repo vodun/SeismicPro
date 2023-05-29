@@ -64,8 +64,8 @@ class VelocitySpectrumPlot(PairedPlot):  # pylint: disable=too-many-instance-att
         return self.gather.copy(ignore=["headers", "data", "samples"]) \
                           .apply_nmo(self.click_vel * 1000, max_stretch_factor=max_stretch_factor)
 
-    def get_hodograph(self, corrected):
-        """Get hodograph times if click has been performed."""
+    def get_hodograph_times(self, corrected):
+        """Get hodograph times if a click has been performed."""
         if (self.click_time is None) or (self.click_vel is None):
             return None
         if not corrected:
@@ -77,18 +77,18 @@ class VelocitySpectrumPlot(PairedPlot):  # pylint: disable=too-many-instance-att
         gather = self.get_gather(corrected=corrected)
         gather.plot(ax=ax, **self.gather_plot_kwargs)
 
-        hodograph = self.get_hodograph(corrected=corrected)
-        if hodograph is None:
+        hodograph_times = self.get_hodograph_times(corrected=corrected)
+        if hodograph_times is None:
             return
-        hodograph_y = self.velocity_spectrum.times_to_indices(hodograph) - 0.5  # Correction for pixel center
+        hodograph_y = self.velocity_spectrum.times_to_indices(hodograph_times) - 0.5  # Correction for pixel center
         half_window = self.velocity_spectrum.half_win_size_samples
-        hodograph_low = np.clip(hodograph_y - half_window, 0, len(self.gather.times) - 1)
-        hodograph_high = np.clip(hodograph_y + half_window, 0, len(self.gather.times) - 1)
-        ax.fill_between(np.arange(len(hodograph)), hodograph_low, hodograph_high, color="tab:blue", alpha=0.5)
+        hodograph_low = np.clip(hodograph_y - half_window, 0, self.gather.n_times - 1)
+        hodograph_high = np.clip(hodograph_y + half_window, 0, self.gather.n_times - 1)
+        ax.fill_between(np.arange(len(hodograph_y)), hodograph_low, hodograph_high, color="tab:blue", alpha=0.5)
 
     def click(self, coords):
         """Highlight the hodograph defined by click location on the gather plot."""
-        click_time, click_vel = self.velocity_spectrum.get_time_velocity_by_indices(coords[1] + 0.5, coords[0] + 0.5)
+        click_time, click_vel = self.velocity_spectrum.get_time_velocity_by_indices(coords[1], coords[0])
         if (click_time is None) or (click_vel is None):
             return None  # Ignore click
         self.aux.view_button.disabled = False

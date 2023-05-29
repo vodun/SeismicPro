@@ -64,6 +64,7 @@ def test_gather_attrs(gather):
     (slice(None), "HeaderName"),  # str in key
     None,  # Adds dims
     ([0, 1], None),  # Adds dims
+    (np.array([1, 2, 3]), None),  # Adds dims, array case
     (slice(5), slice(100), [1, 2, 3]),  # Too many indexers
     (slice(5), [1, 2, 3]),  # Advanced indexing of samples axis
     (slice(None), slice(200, 0, -2)),  # Negative step for samples axis
@@ -99,6 +100,8 @@ def test_gather_getitem_headers(gather, key):
     [0, [0], slice(None), SAMPLE_INTERVAL, DELAY, True],
     [-1, [-1], slice(None), SAMPLE_INTERVAL, DELAY, True],
     [[1, 2, 5], [1, 2, 5], slice(None), SAMPLE_INTERVAL, DELAY, True],
+    [np.array([1, 2, 3]), [1, 2, 3], slice(None), SAMPLE_INTERVAL, DELAY, True],
+    [np.array([1, 1, 1]), [1, 1, 1], slice(None), SAMPLE_INTERVAL, DELAY, True],
     [[5, 3, 1], [5, 3, 1], slice(None), SAMPLE_INTERVAL, DELAY, False],
     [slice(None), slice(None), slice(None), SAMPLE_INTERVAL, DELAY, True],
     [slice(None, None, 3), slice(None, None, 3), slice(None), SAMPLE_INTERVAL, DELAY, True],
@@ -109,6 +112,7 @@ def test_gather_getitem_headers(gather, key):
     [(0, slice(None)), [0], slice(None), SAMPLE_INTERVAL, DELAY, True],
     [(0, 5), [0], slice(5, 6), SAMPLE_INTERVAL, DELAY + SAMPLE_INTERVAL * 5, True],
     [([3, 2, 1], 100), [3, 2, 1], slice(100, 101), SAMPLE_INTERVAL, DELAY + SAMPLE_INTERVAL * 100, False],
+    [(np.array([2, 5]), slice(20, 40)), [2, 5], slice(20, 40), SAMPLE_INTERVAL, DELAY + SAMPLE_INTERVAL * 20, True],
     [(slice(3, 8), slice(100)), slice(3, 8), slice(100), SAMPLE_INTERVAL, DELAY, True],
     [(slice(5, 1, -2), slice(100, None)), slice(5, 1, -2), slice(100, None), SAMPLE_INTERVAL,
      DELAY + 100 * SAMPLE_INTERVAL, False],
@@ -206,8 +210,8 @@ def test_gather_scale_maxabs(gather, tracewise, use_global):
 
 def test_gather_mask_to_pick_and_pick_to_mask(gather):
     """test_gather_mask_to_pick"""
-    mask = gather.pick_to_mask(first_breaks_col=HDR_FIRST_BREAK)
-    mask.mask_to_pick(first_breaks_col=HDR_FIRST_BREAK, save_to=gather)
+    mask = gather.pick_to_mask(first_breaks_header=HDR_FIRST_BREAK)
+    mask.mask_to_pick(first_breaks_header=HDR_FIRST_BREAK, save_to=gather)
 
 @pytest.mark.parametrize('by', ('offset', ['FieldRecord', 'offset']))
 def test_gather_sort(gather, by):

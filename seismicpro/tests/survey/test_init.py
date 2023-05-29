@@ -101,7 +101,7 @@ class TestInit:
 
         # Assert that stats are not calculated
         assert survey.has_stats is False
-        assert survey.dead_traces_marked is False
+        assert isinstance(survey.qc_metrics, dict) and not survey.qc_metrics
 
     @pytest.mark.parametrize("header_index, expected_index", HEADER_INDEX)
     @pytest.mark.parametrize("header_cols, expected_cols", HEADER_COLS)
@@ -121,7 +121,7 @@ class TestInit:
 
         # Assert that stats are not calculated
         assert survey.has_stats is False
-        assert survey.dead_traces_marked is False
+        assert isinstance(survey.qc_metrics, dict) and not survey.qc_metrics
 
         # Check that passing limits to init is identical to running set_limits method
         other = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, validate=False)
