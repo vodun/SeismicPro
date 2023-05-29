@@ -24,7 +24,7 @@ class FirstBreaksOutliers(PipelineMetric):
     views = ("plot_gather", "plot_refractor_velocity")
     args_to_unpack = ("gather", "refractor_velocity")
 
-    def __call__(self, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
+    def __call__(self, gather, refractor_velocity, first_breaks_header=HDR_FIRST_BREAK, threshold_times=50,
                  correct_uphole=None):
         """Calculate the first break outliers metric.
 
@@ -37,7 +37,7 @@ class FirstBreaksOutliers(PipelineMetric):
             A seismic gather to get offsets and times of first breaks from.
         refractor_velocity : RefractorVelocity or RefractorVelocityField
             Near-surface velocity model to estimate the expected times of first breaks at `gather` offsets.
-        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+        first_breaks_header : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `gather.headers` where times of first breaks are stored.
         threshold_times: float, optional, defaults to 50
             Threshold for the first breaks outliers metric calculation. Measured in milliseconds.
@@ -57,7 +57,7 @@ class FirstBreaksOutliers(PipelineMetric):
         if not isinstance(refractor_velocity, RefractorVelocity):
             raise ValueError("refractor_velocity must be of RefractorVelocity or RefractorVelocityField type")
         expected_times = refractor_velocity(gather.offsets)
-        fb_times = gather[first_breaks_col]
+        fb_times = gather[first_breaks_header]
         if correct_uphole is None:
             correct_uphole = "SourceUpholeTime" in gather.available_headers and refractor_velocity.is_uphole_corrected
         if correct_uphole:
@@ -66,18 +66,18 @@ class FirstBreaksOutliers(PipelineMetric):
         return np.mean(metric)
 
     @staticmethod
-    def plot_gather(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
+    def plot_gather(gather, refractor_velocity, first_breaks_header=HDR_FIRST_BREAK, threshold_times=50,
                     correct_uphole=None, *, ax, **kwargs):
         """Plot the gather and its first breaks."""
         _ = refractor_velocity, threshold_times, correct_uphole
-        event_headers = kwargs.pop('event_headers', {'headers': first_breaks_col})
+        event_headers = kwargs.pop('event_headers', {'headers': first_breaks_header})
         gather.plot(ax=ax, event_headers=event_headers, **kwargs)
 
     @staticmethod
-    def plot_refractor_velocity(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
+    def plot_refractor_velocity(gather, refractor_velocity, first_breaks_header=HDR_FIRST_BREAK, threshold_times=50,
                                 correct_uphole=None, *, ax, **kwargs):
         """Plot the refractor velocity curve and show the threshold area used for metric calculation."""
-        fb_times = gather[first_breaks_col]
+        fb_times = gather[first_breaks_header]
         if correct_uphole is None:
             correct_uphole = "SourceUpholeTime" in gather.available_headers and refractor_velocity.is_uphole_corrected
         if correct_uphole:

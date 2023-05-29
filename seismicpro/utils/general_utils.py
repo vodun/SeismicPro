@@ -4,6 +4,7 @@ from functools import partial
 from concurrent.futures import Future, Executor
 
 import numpy as np
+import pandas as pd
 
 
 def to_list(obj):
@@ -59,7 +60,8 @@ def get_first_defined(*args):
 
 
 def get_cols(df, cols):
-    """Extract columns from `cols` from the `df` DataFrame columns or index as an `np.ndarray`."""
+    """Extract columns from `cols` from the `df` DataFrame columns or index as a new instance of `pd.DataFrame` if
+    `cols` is array-like or `pd.Series` if `cols` is string."""
     if df.columns.nlevels == 1:  # Flat column index
         is_single_col = isinstance(cols, str)
         cols = to_list(cols)
@@ -69,7 +71,7 @@ def get_cols(df, cols):
             cols = [cols]
 
     # Avoid using direct pandas indexing to speed up selection of multiple columns from small DataFrames
-    res = []
+    res = {}
     for col in cols:
         if col in df.columns:
             col_values = df[col]
@@ -77,11 +79,12 @@ def get_cols(df, cols):
             col_values = df.index.get_level_values(col)
         else:
             raise KeyError(f"Unknown header {col}")
-        res.append(col_values.to_numpy())
+        res[col] = col_values.to_numpy()
 
+    res = pd.DataFrame(res)
     if is_single_col:
-        return res[0]
-    return np.column_stack(res)
+        return res[cols[0]]
+    return res
 
 
 class MissingModule:
