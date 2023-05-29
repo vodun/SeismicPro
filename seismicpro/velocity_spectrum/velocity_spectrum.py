@@ -97,7 +97,7 @@ class BaseVelocitySpectrum(SamplesContainer):
         return self.gather.coords
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
-        """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
+        """Get time (in milliseconds) and velocity (in meters/milliseconds) by their indices (possibly non-integer) in
         velocity spectrum."""
         _ = time_ix, velocity_ix
         raise NotImplementedError
@@ -428,7 +428,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         return min_velocity + velocity_step * np.arange(n_velocities)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
-        """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
+        """Get time (in milliseconds) and velocity (in meters/milliseconds) by their indices (possibly non-integer) in
         velocity spectrum."""
         time = None
         if 0 <= time_ix <= self.n_times - 1:
@@ -657,7 +657,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         An array of velocity margins the spectrum was calculated for.
     margin_step : float
         A step between each two adjacent margins.
-    relative_margin : float, optional, defaults to 0.2
+    relative_margin : float
         Relative velocity margin, that determines the velocity range for velocity spectrum calculation for each time.
     half_win_size_samples : int
         Half of the temporal window size for smoothing the velocity spectrum. Measured in samples.
@@ -754,7 +754,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         return residual_velocity_spectrum
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
-        """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
+        """Get time (in milliseconds) and velocity (in meters/milliseconds) by their indices (possibly non-integer) in
         residual velocity spectrum."""
         if (time_ix < 0) or (time_ix > self.n_times - 1):
             return None, None
