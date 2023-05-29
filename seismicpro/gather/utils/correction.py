@@ -132,8 +132,9 @@ def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, v
     for i in prange(len(times)):
         hodograph_times[i] = np.sqrt(times[i]**2 + (offsets / velocities[i])**2)
         corrected_t0 = times[i] - offsets**2 * velocities_grad[i] / velocities[i]**3
-        stretch_mask = (corrected_t0 <= 0) | (hodograph_times[i] > (1 + max_stretch_factor) * corrected_t0)
-        muted_offsets = offsets[stretch_mask]
+        crossover_mask = corrected_t0 <= 0
+        stretch_mask = hodograph_times[i] > (1 + max_stretch_factor) * corrected_t0
+        muted_offsets = offsets[crossover_mask | stretch_mask]
         max_offsets[i] = muted_offsets.min() if muted_offsets.size > 0 else np.inf
 
     # Make a sequence of max offsets monotonically non-decreasing
