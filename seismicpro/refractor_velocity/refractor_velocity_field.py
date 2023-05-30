@@ -16,7 +16,7 @@ from .interactive_plot import FieldPlot
 from .utils import get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities
 from ..field import SpatialField
 from ..metrics import initialize_metrics
-from ..utils import to_list, get_coords_cols, Coordinates, IDWInterpolator, ForPoolExecutor
+from ..utils import to_list, get_coords_cols, Coordinates, IDWInterpolator, ForPoolExecutor, GEOGRAPHIC_COORDS
 from ..const import HDR_FIRST_BREAK
 
 
@@ -683,6 +683,8 @@ class RefractorVelocityField(SpatialField):
             metric.set_defaults(first_breaks_header=first_breaks_header, correct_uphole=correct_uphole)
 
         coords_cols = to_list(get_coords_cols(survey.indexed_by))
+        is_geographic = tuple(coords_cols) in GEOGRAPHIC_COORDS
+
         gather_change_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0]
         gather_coords = survey[coords_cols][gather_change_ix]
 
@@ -695,7 +697,7 @@ class RefractorVelocityField(SpatialField):
 
         def calc_metrics(gather_indices_chunk, coords_chunk):
             """Calculate metrics for a given chunk of gather indices."""
-            refractor_velocities = self(coords_chunk)
+            refractor_velocities = self(coords_chunk, is_geographic=is_geographic)
             results = []
             for idx, rv in zip(gather_indices_chunk, refractor_velocities):
                 gather = survey.get_gather(idx)
