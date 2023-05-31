@@ -6,10 +6,10 @@ import numpy as np
 from numba import njit
 from scipy.signal import hilbert
 
-from ..gather.utils.normalization import scale_maxabs, get_quantile
+from ..gather.utils.normalization import scale_maxabs, get_quantile, get_gather_stats, scale_standard
 from ..gather.utils.correction import get_hodograph
 from ..metrics import Metric
-from ..utils import get_first_defined, set_ticks
+from ..utils import get_first_defined, set_ticks, GEOGRAPHIC_COORDS, get_coords_cols, to_list
 
 
 class RefractorVelocityMetric(Metric):
@@ -124,7 +124,11 @@ class RefractorVelocityMetric(Metric):
 
     def plot_refractor_velocity(self, coords, ax, index, **kwargs):
         """Plot the refractor velocity curve."""
-        refractor_velocity = self.field(coords)
+        coords_cols = to_list(get_coords_cols(self.survey.indexed_by))
+        is_geographic = tuple(coords_cols) in GEOGRAPHIC_COORDS
+
+        refractor_velocity = self.field(coords, is_geographic=is_geographic)
+
         gather = self.survey.get_gather(index)
         refractor_velocity.times = gather[self.first_breaks_header]
         if self.correct_uphole:
@@ -280,7 +284,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         super().__init__(first_breaks_header, correct_uphole, name)
 
     def calc(self, gather, refractor_velocity):
-        """Return absolute deviation of the signal phase from target value in the moment of first break.
+        """Return absolute deviation of the signal phase from target value in the moment of first break.        
 
         Parameters
         ----------
@@ -293,7 +297,9 @@ class FirstBreaksPhases(RefractorVelocityMetric):
             Signal phase value at first break time for each trace in the gather.
         """
         _ = refractor_velocity
-        phases = hilbert(gather.data, axis=1)
+        mean, std = get_gather_stats(gather.data)
+        data = scale_standard(gather.data, mean, std, 1e-10)
+        phases = hilbert(data, axis=1)
         fb_phases = get_hodograph(phases, gather.offsets, gather.sample_interval, gather.delay,
                                   gather[self.first_breaks_header], interpolate=True, fill_value=0)
         angles = np.angle(fb_phases)
