@@ -974,9 +974,9 @@ class Gather(TraceContainer, SamplesContainer):
 
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_bf(self, velocities, fmax=None, weighted=False, cylindrical=True):
+    def calculate_bf(self, velocities, fmax=None, cylindrical=True, weighted=False, p=0):
         from ..velocity_spectrum.velocity_spectrum import BeamFormer
-        return BeamFormer(self, velocities, fmax=fmax, weighted=weighted, cylindrical=cylindrical)
+        return BeamFormer(self, velocities, fmax=fmax, cylindrical=cylindrical, weighted=weighted, p=p)
 
 
     #------------------------------------------------------------------------#

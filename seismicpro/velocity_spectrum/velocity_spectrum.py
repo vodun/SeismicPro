@@ -868,7 +868,10 @@ class SlantStack(VerticalVelocitySpectrum):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_interval, delay,
-                                half_win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf, out=None):
+                                      half_win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf,
+                                      interpolate=True, out=None):
+
+    
         t_win_size_min_ix = max(0, t_min_ix - half_win_size_samples)
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + half_win_size_samples)
 
@@ -923,17 +926,17 @@ class DispersionSpectrumPlot(VelocitySpectrumPlot):
             self.gather.plot(ax=ax)
             return
         gather = self.get_gather(corrected=corrected).copy()
-
-        dt = 400
-        hodographs = [np.array(t0 + self.gather.offsets/self.click_vel) for t0 in np.arange(-self.gather.times[-1], self.gather.times[-1], dt)]
-        for hodograph in hodographs:
-            hodograph_y = self.gather.times_to_indices(hodograph) - 0.5  # Correction for pixel center
-            half_window = dt / 2 / 2 / self.gather.sample_interval
-            hodograph_low = np.clip(hodograph_y - half_window, 0, len(self.gather.times) - 1)
-            hodograph_high = np.clip(hodograph_y + half_window, 0, len(self.gather.times) - 1)
-            ax.fill_between(np.arange(len(hodograph)), hodograph_low, hodograph_high, color="tab:blue", alpha=0.3)
+        # dt = 400
+        # hodographs = [np.array(t0 + self.gather.offsets/self.click_vel) for t0 in np.arange(-self.gather.times[-1], self.gather.times[-1], dt)]
+        # for hodograph in hodographs:
+        #     hodograph_y = self.gather.times_to_indices(hodograph) - 0.5  # Correction for pixel center
+        #     half_window = dt / 2 / 2 / self.gather.sample_interval
+        #     hodograph_low = np.clip(hodograph_y - half_window, 0, len(self.gather.times) - 1)
+        #     hodograph_high = np.clip(hodograph_y + half_window, 0, len(self.gather.times) - 1)
+        #     ax.fill_between(np.arange(len(hodograph)), hodograph_low, hodograph_high, color="tab:blue", alpha=0.3)
 
         gather.bandpass_filter(low=self.click_time - 1, high=self.click_time + 1, filter_size=81 * 2)
+        gather.data = apply_lmo(gather.data, gather.times, gather.offsets, self.click_vel, gather.sample_interval, gather.delay, fill_value=0)
         gather.plot(ax=ax, q_vmin=0.2, q_vmax=0.8) # gather_plot_kwargs
 
 
@@ -1015,11 +1018,20 @@ from tqdm import tqdm
 from .utils.bessel import j0, y0
 
 @njit(parallel=True)
-def fdbf(fft, velocities, frequencies, offsets, cylindrical=False, weighted=False):
+def fdbf(fft, velocities, frequencies, offsets, cylindrical=False, weighted=False, p=0):
     power = np.empty((len(frequencies), len(velocities)), dtype=np.complex128)
     k = 2 * np.pi * frequencies.reshape(-1, 1) / velocities.reshape(1, -1)
     NF = len(frequencies)
-
+    
+    if weighted:
+        a, b = np.histogram(offsets, bins=100)
+        ix = np.searchsorted(b, offsets)
+        ix[ix == 0] = 1
+        ix = ix  - 1
+        w = (1 / a[ix]).astype(np.float32)
+    else:
+        w = (offsets ** p).astype(np.float32)
+    
     for i in prange(NF):
         for j in range(len(velocities)):
             kx = k[i, j] * offsets
@@ -1030,9 +1042,7 @@ def fdbf(fft, velocities, frequencies, offsets, cylindrical=False, weighted=Fals
             else:
                 steer = np.exp(-1j * kx).reshape(1, -1)
 
-            if weighted:
-                w = (offsets.reshape(1, -1) ** (2 - 4 * i / (NF - 1)))
-                steer = w * steer
+            steer = w * steer
         
             HS = np.conjugate(steer) @ fft[:, i]
             power[i, j] = (HS * np.conjugate(HS)).item()
@@ -1043,7 +1053,7 @@ class BeamFormer(EmptySpectrum):
 
     title = 'BeamFormer'
 
-    def __init__(self, gather, velocities, fmax=None, weighted=False, cylindrical=True):
+    def __init__(self, gather, velocities, fmax=None, weighted=False, cylindrical=True, p=0):
         frequencies = np.fft.fftfreq(gather.n_samples, gather.sample_interval / 1000)
         fft = np.fft.fft(gather.data)
     
@@ -1052,9 +1062,9 @@ class BeamFormer(EmptySpectrum):
         frequencies = frequencies[mask]
         fft = fft[:, mask]
 
-        w = 1 / gather.offsets.reshape(-1, 1) ** 0.5
-        fft = fft * w
-        power = fdbf(fft, velocities, frequencies, gather.offsets.astype(np.float32), cylindrical, weighted)
+        #w = 1 / gather.offsets.reshape(-1, 1) ** 0.5
+        #fft = fft * w
+        power = fdbf(fft, velocities, frequencies, gather.offsets.astype(np.float32), cylindrical, weighted, p)
         power = np.abs(power)
     
         # power_max = np.nansum(power ** 2, axis=1, keepdims=True) ** 0.5
@@ -1074,7 +1084,7 @@ def apply_lmo(gather_data, times, offsets, stacking_velocities, sample_interval,
     corrected_gather_data = np.full_like(gather_data, fill_value=fill_value)
     hodograph_times = compute_linear_hodograph_times(offsets, times, stacking_velocities)
     for i in prange(times.shape[0]):
-        get_hodograph(gather_data, offsets, hodograph_times[i], sample_interval, delay, fill_value=fill_value, out=corrected_gather_data[:, i])
+        get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times[i], fill_value=fill_value, interpolate=True, out=corrected_gather_data[:, i])
     return corrected_gather_data
 
 
