@@ -954,6 +954,13 @@ class EmptySpectrum(VerticalVelocitySpectrum):
         self._times = f
         self.title = title
 
+        self.stacking_velocity = None
+        self.relative_margin = None
+
+    @classmethod
+    def from_gather(cls, gather):
+        return cls(gather, gather.offsets, gather.times, gather.data.T)
+
     @property
     def sample_interval(self):
         return np.diff(self.times)[0]
@@ -972,6 +979,7 @@ class EmptySpectrum(VerticalVelocitySpectrum):
         spectrum_max = np.nansum(self.velocity_spectrum ** 2, axis=1, keepdims=True) ** 0.5
         self.velocity_spectrum = np.where(spectrum_max != 0, self.velocity_spectrum / spectrum_max, 0)
         return self
+
 
 from numba import njit, prange
 @njit(nogil=True, parallel=True)
@@ -993,11 +1001,30 @@ def ps(velocities, frequencies, offsets, fft):
     return power
 
 
+
+@njit(nogil=True, parallel=True)
+def new_ps(velocities, frequencies, offsets, fft):
+    power = np.empty((len(velocities), len(frequencies)), dtype=np.float64)
+
+    fft = np.where(np.abs(fft), fft / np.abs(fft), 0)
+
+    dx = offsets[1:] - offsets[:-1]
+    for row in prange(len(velocities)):
+        velocity = velocities[row]
+        delta = offsets / velocity
+        for col in range(len(frequencies)):
+            frequency = frequencies[col]
+            shift = np.exp(1j * 2*np.pi * frequency * delta)
+            inner = shift * fft[:, col]
+            power[row, col] = np.abs(np.sum(inner))
+    return power
+
+
 class PhaseShist(EmptySpectrum):
 
     title = 'PhaseShift'
 
-    def __init__(self, gather, velocities, fmax=None):
+    def __init__(self, gather, velocities, fmax=None, new=False):
         N = gather.n_samples
         A = np.fft.fft(gather.data)[:, :N // 2]
         f = np.fft.fftfreq(gather.n_samples, gather.sample_interval / 1000)[:N // 2]
@@ -1005,7 +1032,10 @@ class PhaseShist(EmptySpectrum):
         fmax = fmax or f.max()
         #A = A[:, f < fmax]
         f = f[f < fmax]
-        power = ps(velocities, f, gather.offsets, A).T
+        if new:
+            power = new_ps(velocities, f, gather.offsets, A).T
+        else:
+            power = ps(velocities, f, gather.offsets, A).T
 
         # power_max = np.nansum(power ** 2, axis=1, keepdims=True) ** 0.5
         # power = np.where(power_max != 0, power / power_max, 0)

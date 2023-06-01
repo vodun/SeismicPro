@@ -968,9 +968,9 @@ class Gather(TraceContainer, SamplesContainer):
         return ss
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_ps(self, velocities, fmax=None):
+    def calculate_ps(self, velocities, fmax=None, new=False):
         from ..velocity_spectrum.velocity_spectrum import PhaseShist    
-        return PhaseShist(self, velocities, fmax)
+        return PhaseShist(self, velocities, fmax, new=new)
 
 
     @batch_method(target="threads", copy_src=False)
