@@ -191,9 +191,8 @@ class NearSurfaceModel:
         return field_params
 
     def _get_intermediate_indices(self, shots, receivers):
-        alpha_range = np.linspace(0, 1, 2 + self.n_intermediate_points)
-        intermediate_coords = np.concatenate([(1 - alpha) * shots + alpha * receivers for alpha in alpha_range])
-        return self.tree.query(intermediate_coords, workers=-1)[1].reshape(2 + self.n_intermediate_points, -1).T
+        intermediate_coords = np.linspace(shots, receivers, 2 + self.n_intermediate_points)
+        return self.tree.query(intermediate_coords, workers=-1)[1].T
 
     def _describe_rays(self, coords, slownesses, elevations, dips_cos, dips_tan):
         batch_size = len(coords)
@@ -373,54 +372,52 @@ class NearSurfaceModel:
         velocities_reg_coef = torch.broadcast_to(velocities_reg_coef, (self.n_refractors + 1,))
 
         loader = TensorDataLoader(self.shots_coords, self.receivers_coords, self.intermediate_indices, self.traveltimes,
-                                  batch_size=batch_size, shuffle=True, drop_last=True, device=self.device)
-        with tqdm(total=n_epochs*loader.n_batches, desc="Iterations of model fitting", disable=not bar) as pbar:
-            for _ in range(n_epochs):
-                for shots_coords, receivers_coords, intermediate_indices, traveltimes in loader:
-                    pred_traveltimes = self._estimate_traveltimes_by_indices(shots_coords, receivers_coords, intermediate_indices)
-                    loss = torch.abs(pred_traveltimes - traveltimes).mean()
+                                  batch_size=batch_size, n_epochs=n_epochs, shuffle=True, drop_last=True, device=self.device)
+        tqdm_loader = tqdm(loader, desc="Iterations of model fitting", disable=not bar)
+        for shots_coords, receivers_coords, intermediate_indices, traveltimes in tqdm_loader:
+            pred_traveltimes = self._estimate_traveltimes_by_indices(shots_coords, receivers_coords, intermediate_indices)
+            loss = torch.abs(pred_traveltimes - traveltimes).mean()
 
-                    # Calc regularization
-                    unique_batch_indices = torch.unique(intermediate_indices[:, [0, -1]].ravel(), sorted=False)
-                    neighbors_indices = self.neighbors_indices[unique_batch_indices]
-                    neighbors_weights = self.neighbors_weights[unique_batch_indices][..., None]
+            # Calc regularization
+            unique_batch_indices = torch.unique(intermediate_indices[:, [0, -1]].ravel(), sorted=False)
+            neighbors_indices = self.neighbors_indices[unique_batch_indices]
+            neighbors_weights = self.neighbors_weights[unique_batch_indices][..., None]
 
-                    velocities = 1000 / torch.column_stack([self.weathering_slowness_tensor, self.slownesses_tensor])
-                    batch_velocities = velocities[unique_batch_indices]
-                    interp_velocities = (neighbors_weights * velocities[neighbors_indices]).sum(axis=1)
-                    velocities_err = torch.abs(batch_velocities - interp_velocities) / velocities.mean(axis=0)
-                    velocities_reg = (velocities_err * velocities_reg_coef).mean()
+            velocities = 1000 / torch.column_stack([self.weathering_slowness_tensor, self.slownesses_tensor])
+            batch_velocities = velocities[unique_batch_indices]
+            interp_velocities = (neighbors_weights * velocities[neighbors_indices]).sum(axis=1)
+            velocities_err = torch.abs(batch_velocities - interp_velocities) / velocities.mean(axis=0)
+            velocities_reg = (velocities_err * velocities_reg_coef).mean()
 
-                    batch_elevations = self.elevations_tensor[unique_batch_indices]
-                    interp_elevations = (neighbors_weights * self.elevations_tensor[neighbors_indices]).sum(axis=1)
-                    elevations_err = torch.abs(batch_elevations - interp_elevations)
-                    elevations_reg = (elevations_err * elevations_reg_coef).mean()
+            batch_elevations = self.elevations_tensor[unique_batch_indices]
+            interp_elevations = (neighbors_weights * self.elevations_tensor[neighbors_indices]).sum(axis=1)
+            elevations_err = torch.abs(batch_elevations - interp_elevations)
+            elevations_reg = (elevations_err * elevations_reg_coef).mean()
 
-                    thicknesses = -torch.diff(torch.column_stack([self.surface_elevation_tensor, self.elevations_tensor]), axis=1)
-                    batch_thicknesses = thicknesses[unique_batch_indices]
-                    interp_thicknesses = (neighbors_weights * thicknesses[neighbors_indices]).sum(axis=1)
-                    thicknesses_err = torch.abs(batch_thicknesses - interp_thicknesses)
-                    thicknesses_reg = (thicknesses_err * thicknesses_reg_coef).mean()
+            thicknesses = -torch.diff(torch.column_stack([self.surface_elevation_tensor, self.elevations_tensor]), axis=1)
+            batch_thicknesses = thicknesses[unique_batch_indices]
+            interp_thicknesses = (neighbors_weights * thicknesses[neighbors_indices]).sum(axis=1)
+            thicknesses_err = torch.abs(batch_thicknesses - interp_thicknesses)
+            thicknesses_reg = (thicknesses_err * thicknesses_reg_coef).mean()
 
-                    total_loss = loss + velocities_reg + elevations_reg + thicknesses_reg
-                    self.optimizer.zero_grad()
-                    total_loss.backward()
-                    self.optimizer.step()
-                    self.scheduler.step(total_loss.item())
+            total_loss = loss + velocities_reg + elevations_reg + thicknesses_reg
+            self.optimizer.zero_grad()
+            total_loss.backward()
+            self.optimizer.step()
+            self.scheduler.step(total_loss.item())
 
-                    # Enforce model constraints
-                    with torch.no_grad():
-                        self.elevations_tensor.clamp_(max=self.surface_elevation_tensor.reshape(-1, 1))
-                        self.elevations_tensor.data = torch.cummin(self.elevations_tensor, axis=1)[0]
-                        self.slownesses_tensor.clamp_(min=0.01)
-                        self.slownesses_tensor.data = torch.cummin(self.slownesses_tensor, axis=1)[0]
-                        self.weathering_slowness_tensor.clamp_(min=self.slownesses_tensor[:, 0])
+            # Enforce model constraints
+            with torch.no_grad():
+                self.elevations_tensor.clamp_(max=self.surface_elevation_tensor.reshape(-1, 1))
+                self.elevations_tensor.data = torch.cummin(self.elevations_tensor, axis=1)[0]
+                self.slownesses_tensor.clamp_(min=0.01)
+                self.slownesses_tensor.data = torch.cummin(self.slownesses_tensor, axis=1)[0]
+                self.weathering_slowness_tensor.clamp_(min=self.slownesses_tensor[:, 0])
 
-                    self.loss_hist.append(loss.item())
-                    self.velocities_reg_hist.append(velocities_reg.item())
-                    self.elevations_reg_hist.append(elevations_reg.item())
-                    self.thicknesses_reg_hist.append(thicknesses_reg.item())
-                    pbar.update(1)
+            self.loss_hist.append(loss.item())
+            self.velocities_reg_hist.append(velocities_reg.item())
+            self.elevations_reg_hist.append(elevations_reg.item())
+            self.thicknesses_reg_hist.append(thicknesses_reg.item())
 
     @staticmethod
     def _calc_metrics(metrics, gather_data_list):
