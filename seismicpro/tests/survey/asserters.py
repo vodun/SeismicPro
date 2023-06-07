@@ -4,8 +4,10 @@
 import pathlib
 
 import segyio
+import segfast
 import numpy as np
 
+from seismicpro import Survey
 from seismicpro.utils.indexer import create_indexer
 from seismicpro.const import HDR_TRACE_POS
 
@@ -23,18 +25,19 @@ def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expec
         file_samples = f.samples
         n_traces = f.tracecount
     n_samples = len(file_samples)
-    file_sample_rate = np.unique(np.diff(file_samples))[0]
+    file_sample_interval = np.unique(np.diff(file_samples))[0]
 
     # Check all path-related attributes
     assert survey.name == expected_name
     assert pathlib.Path(survey.path) == segy_path
-    assert isinstance(survey.segy_handler, segyio.SegyFile)
-    assert pathlib.Path(survey.segy_handler._filename) == segy_path
+    assert pathlib.Path(survey.loader.path) == segy_path
+    assert pathlib.Path(survey.loader.file_handler._filename) == segy_path
 
     # Check whether samples data matches that of the source file
     assert survey.n_file_samples == n_samples
     assert np.allclose(survey.file_samples, file_samples, rtol=rtol, atol=atol)
-    assert np.isclose(survey.file_sample_rate, file_sample_rate, rtol=rtol, atol=atol)
+    assert np.isclose(survey.file_sample_interval, file_sample_interval, rtol=rtol, atol=atol)
+    assert np.isclose(survey.file_sample_rate, 1000 / file_sample_interval, rtol=rtol, atol=atol)
 
     # Check names of loaded trace headers and the resulting headers shape
     assert survey.n_traces == n_traces
@@ -52,7 +55,7 @@ def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expec
     assert np.array_equal(loaded_headers["TRACE_SEQUENCE_FILE"].values, np.arange(1, n_traces + 1))
     for header in set(loaded_headers.columns) - {"TRACE_SEQUENCE_FILE", HDR_TRACE_POS}:
         assert np.array_equal(loaded_headers[header].values,
-                              survey.segy_handler.attributes(segyio.tracefield.keys[header])[:])
+                              survey.loader.file_handler.attributes(segyio.tracefield.keys[header])[:])
 
     # Check whether indexer was constructed correctly
     assert_indexers_equal(survey._indexer, create_indexer(survey.headers.index))
@@ -66,18 +69,35 @@ def assert_both_none_or_close(left, right, rtol=RTOL, atol=ATOL):
     assert left_none and right_none or np.allclose(left, right, rtol=rtol, atol=atol)
 
 
+def assert_loaders_equal(left, right):
+    """Check whether both `left` and `right` SEG-Y loaders are equal."""
+    assert isinstance(left, (segfast.SegyioLoader, segfast.MemmapLoader))
+    assert type(left) is type(right)
+    assert pathlib.Path(left.path) == pathlib.Path(right.path)
+    assert pathlib.Path(left.file_handler._filename) == pathlib.Path(right.file_handler._filename)
+    assert left.endian == right.endian
+    assert left.strict == right.strict
+    assert left.ignore_geometry == right.ignore_geometry
+
+
 def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=False, rtol=RTOL, atol=ATOL):
     """Check if two surveys are equal. Optionally allow for changes in headers order or dtypes."""
     # Check whether all path-related attributes are equal
+    assert isinstance(left, Survey)
+    assert isinstance(right, Survey)
     assert left.name == right.name
     assert pathlib.Path(left.path) == pathlib.Path(right.path)
-    assert type(left.segy_handler) is type(right.segy_handler)
-    assert pathlib.Path(left.segy_handler._filename) == pathlib.Path(right.segy_handler._filename)
+    assert_loaders_equal(left.loader, right.loader)
+
+    # Check whether source and receiver id cols are equal
+    assert left.source_id_cols == right.source_id_cols
+    assert left.receiver_id_cols == right.receiver_id_cols
 
     # Check whether source file samples are equal
     assert left.n_file_samples == right.n_file_samples
     assert np.allclose(left.file_samples, right.file_samples, rtol=rtol, atol=atol)
     assert np.isclose(left.file_sample_rate, right.file_sample_rate, rtol=rtol, atol=atol)
+    assert np.isclose(left.file_sample_interval, right.file_sample_interval, rtol=rtol, atol=atol)
 
     # Check whether loaded headers are equal
     left_headers = left.headers
@@ -99,6 +119,7 @@ def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=F
     assert np.allclose(left.times, right.times, rtol=rtol, atol=atol)
     assert np.allclose(left.samples, right.samples, rtol=rtol, atol=atol)
     assert np.isclose(left.sample_rate, right.sample_rate, rtol=rtol, atol=atol)
+    assert np.isclose(left.sample_interval, right.sample_interval, rtol=rtol, atol=atol)
 
     # Assert that either stats were not calculated for both surveys or they are equal
     assert left.has_stats == right.has_stats
@@ -106,7 +127,10 @@ def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=F
     assert_both_none_or_close(left.max, right.max, rtol=rtol, atol=atol)
     assert_both_none_or_close(left.mean, right.mean, rtol=rtol, atol=atol)
     assert_both_none_or_close(left.std, right.std, rtol=rtol, atol=atol)
-    assert_both_none_or_close(left.n_dead_traces, right.n_dead_traces, rtol=rtol, atol=atol)
+
+    # Assert that qc metrics were not calculated for both surveys or metrics are the same
+    assert len(left.qc_metrics) == len(right.qc_metrics)
+    assert all(name in right.qc_metrics and right.qc_metrics[name] is obj for name, obj in left.qc_metrics.items())
 
     q = np.linspace(0, 1, 11)
     left_quantiles = left.quantile_interpolator(q) if left.quantile_interpolator is not None else None
@@ -128,11 +152,6 @@ def assert_surveys_not_linked(base, altered):
     altered.samples += 1
     assert np.allclose(unchanged_samples, base.samples)
 
-    # Modify file samples
-    unchanged_file_samples = np.copy(base.file_samples)
-    altered.file_samples += 1
-    assert np.allclose(unchanged_file_samples, base.file_samples)
-
 
 def assert_survey_processed_inplace(before, after, inplace):
     """Assert whether survey processing was performed inplace depending on the `inplace` flag. Changes `after` data
@@ -146,10 +165,11 @@ def assert_survey_limits_set(survey, limits, rtol=RTOL, atol=ATOL):
     """Check if `survey` limits were set correctly. `limits` must be a `slice` object with `start`, `stop` and `step`
     arguments set to `int`s."""
     limited_samples = survey.file_samples[limits]
-    limited_sample_rate = survey.file_sample_rate * limits.step
+    limited_sample_interval = survey.file_sample_interval * limits.step
 
     assert survey.limits == limits
     assert survey.n_samples == len(limited_samples)
     assert np.allclose(survey.times, limited_samples, rtol=rtol, atol=atol)
     assert np.allclose(survey.samples, limited_samples, rtol=rtol, atol=atol)
-    assert np.isclose(survey.sample_rate, limited_sample_rate, rtol=rtol, atol=atol)
+    assert np.isclose(survey.sample_interval, limited_sample_interval, rtol=rtol, atol=atol)
+    assert np.isclose(survey.sample_rate, 1000 / limited_sample_interval, rtol=rtol, atol=atol)

@@ -1,29 +1,32 @@
 """Implements Survey class describing a single SEG-Y file"""
 
 import os
-import math
 import warnings
-from copy import copy
 from textwrap import dedent
+from functools import partial
+from concurrent.futures import ThreadPoolExecutor
 
 import cv2
 import segyio
 import numpy as np
 import scipy as sp
 import pandas as pd
+from segfast import Loader
 from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
-from .headers import load_headers
 from .headers_checks import validate_trace_headers, validate_source_headers, validate_receiver_headers
-from .metrics import SurveyAttribute
+from .metrics import (SurveyAttribute, TracewiseMetric, BaseWindowRMSMetric, MetricsRatio, DeadTrace,
+                      DEFAULT_TRACEWISE_METRICS)
 from .plot_geometry import SurveyGeometryPlot
-from .utils import ibm_to_ieee, calculate_trace_stats
+from .utils import calculate_trace_stats
+from ..config import config
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
-from ..utils import to_list, maybe_copy, get_cols, get_first_defined
-from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
+from ..metrics import initialize_metrics
+from ..utils import to_list, maybe_copy, get_cols, get_first_defined, ForPoolExecutor
+from ..const import HDR_TRACE_POS
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
@@ -51,7 +54,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     `UnassignedInt2` since they are treated differently from all other headers by `segyio`. Also, `TRACE_SEQUENCE_FILE`
     header is not loaded from the file but always automatically reconstructed.
 
-    The survey sample rate is calculated by two values stored in:
+    Sample interval of the survey is calculated by two values stored in:
     - bytes 3217-3218 of the binary header, called `Interval` in `segyio`,
     - bytes 117-118 of the trace header of the first trace in the file, called `TRACE_SAMPLE_INTERVAL` in `segyio`.
     If both of them are present and equal or only one of them is well-defined (non-zero), it is used as a sample rate.
@@ -87,14 +90,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     header_cols : str or list of str or "all", optional
         Extra trace headers to load. Must be any of those specified in
         https://segyio.readthedocs.io/en/latest/segyio.html#trace-header-keys except for `UnassignedInt1` and
-        `UnassignedInt2`.
-        If not given, only headers from `header_index` are loaded and `TRACE_SEQUENCE_FILE` header is reconstructed
-        automatically if not in the index.
+        `UnassignedInt2`. `TRACE_SEQUENCE_FILE` header is automatically reconstructed and always present in `headers`.
+        If not given, only headers from `header_index`, `source_id_cols` and `receiver_id_cols` are loaded.
         If "all", all available headers are loaded.
     source_id_cols : str or list of str, optional
         Trace headers that uniquely identify a seismic source. If not given, set in the following way (in order of
         priority):
-        - `FieldRecord` if it loaded,
+        - `FieldRecord` if it is loaded,
         - [`SourceX`, `SourceY`] if they are loaded,
         - `None` otherwise.
     receiver_id_cols : str or list of str, optional
@@ -102,11 +104,21 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     name : str, optional
         Survey name. If not given, source file name is used. This name is mainly used to identify the survey when it is
         added to an index, see :class:`~index.SeismicIndex` docs for more info.
+    sample_interval : float, optional
+        Sample interval of seismic traces in the source SEG-Y file. Inferred from binary and trace headers if not
+        given. Measured in milliseconds.
+    delay : float, optional, defaults to 0
+        Global delay recording time of seismic traces in the source SEG-Y file. Measured in milliseconds.
     limits : int or tuple or slice, optional
         Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
         used as arguments to init a `slice` object. If not given, whole traces are used. Measured in samples.
     validate : bool, optional, defaults to True
         Whether to perform validation of trace headers consistency.
+    engine : {"segyio", "memmap"}, optional, defaults to "memmap"
+        SEG-Y file loading engine. Two options are supported:
+        - "segyio" - directly uses `segyio` library interface,
+        - "memmap" - optimizes data fetching using `numpy` memory mapping. Generally provides up to 10x speedup
+          compared to "segyio" and thus set as default.
     endian : {"big", "msb", "little", "lsb"}, optional, defaults to "big"
         SEG-Y file endianness.
     chunk_size : int, optional, defaults to 25000
@@ -115,10 +127,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         The maximum number of simultaneously spawned processes to load trace headers. Defaults to the number of cpu
         cores.
     bar : bool, optional, defaults to True
-        Whether to show survey loading progress bar.
-    use_segyio_trace_loader : bool, optional, defaults to False
-        Whether to use `segyio` trace loading methods or try optimizing data fetching using `numpy` memory mapping. May
-        degrade performance if enabled.
+        Whether to show trace headers loading progress bar.
 
     Attributes
     ----------
@@ -128,16 +137,18 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Survey name.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
-    sample_rate : float
-        Sample rate of seismic traces. Measured in milliseconds.
+    sample_interval : float
+        Sample interval of seismic traces. Measured in milliseconds.
+    delay : float
+        Delay recording time of seismic traces. Measured in milliseconds.
     limits : slice
         Default time limits to be used during trace loading and survey statistics calculation. Measured in samples.
     source_id_cols : str or list of str or None
         Trace headers that uniquely identify a seismic source.
     receiver_id_cols : str or list of str or None
         Trace headers that uniquely identify a receiver.
-    segy_handler : segyio.segy.SegyFile
-        Source SEG-Y file handler.
+    loader : segfast.SegyioLoader or segfast.MemmapLoader
+        SEG-Y file loader. Its type depends on the `engine` passed during survey instantiation.
     has_stats : bool
         Whether the survey has trace statistics calculated. `False` until `collect_stats` method is called.
     min : np.float32 or None
@@ -150,8 +161,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Standard deviation of trace values. `None` until trace statistics are calculated.
     quantile_interpolator : scipy.interpolate.interp1d or None
         Interpolator of trace values quantiles. `None` until trace statistics are calculated.
-    n_dead_traces : int or None
-        The number of traces with constant value (dead traces). `None` until `mark_dead_traces` method is called.
+    qc_metrics : dict
+        A mapping from a name of a calculated tracewise QC metric to the corresponding metric instance.
+        Empty until `qc` method is called.
     has_inferred_binning : bool
         Whether properties of survey binning have been inferred. `True` if `INLINE_3D` and `CROSSLINE_3D` trace headers
         are loaded on survey instantiation or `infer_binning` method is explicitly called.
@@ -160,8 +172,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     is_stacked : bool or None
         Whether the survey is stacked. `None` until properties of survey binning are inferred.
     field_mask : 2d np.ndarray or None
-        A binary mask of the field with ones set for bins with at least one trace and zeros otherwise. `None` until
-        properties of survey binning are inferred.
+        A binary mask of the field with ones set for bins with at least one trace and zeros otherwise. The origin of
+        the mask is stored in the `field_mask_origin` attribute. `None` until properties of survey binning are
+        inferred.
     field_mask_origin : np.ndarray with 2 elements
         Minimum values of inline and crossline over the field. `None` until properties of survey binning are inferred.
     bin_contours : tuple of np.ndarray or None
@@ -172,16 +185,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         headers are loaded on survey instantiation or `infer_geometry` method is explicitly called.
     is_2d : bool or None
         Whether the survey is 2D. `None` until survey geometry is inferred.
+    area : float or None
+        Field area in squared meters. `None` until survey geometry is inferred.
+    perimeter : float or None
+        Field perimeter in meters. `None` until survey geometry is inferred.
     bin_size : np.ndarray with 2 elements or None
         Bin sizes in meters along inline and crossline directions. `None` until survey geometry is inferred.
     inline_length : float or None
         Maximum field length along inline direction in meters. `None` until survey geometry is inferred.
     crossline_length : float or None
         Maximum field length along crossline direction in meters. `None` until survey geometry is inferred.
-    area : float or None
-        Field area in squared meters. `None` until survey geometry is inferred.
-    perimeter : float or None
-        Field perimeter in meters. `None` until survey geometry is inferred.
     geographic_contours : tuple of np.ndarray or None
         Contours of all connected components of the field in geographic coordinates. `None` until survey geometry is
         inferred.
@@ -189,8 +202,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     # pylint: disable-next=too-many-arguments, too-many-statements
     def __init__(self, path, header_index, header_cols=None, source_id_cols=None, receiver_id_cols=None, name=None,
-                 limits=None, validate=True, endian="big", chunk_size=25000, n_workers=None, bar=True,
-                 use_segyio_trace_loader=False):
+                 sample_interval=None, delay=0, limits=None, validate=True, engine="memmap", endian="big",
+                 chunk_size=25000, n_workers=None, bar=True):
         self.path = os.path.abspath(path)
         self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
@@ -223,50 +236,34 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             headers_to_load |= set(to_list(receiver_id_cols))
         self.receiver_id_cols = receiver_id_cols
 
-        # TRACE_SEQUENCE_FILE is not loaded but reconstructed manually since sometimes it is undefined in the file but
-        # we rely on it during gather loading
-        headers_to_load = headers_to_load - {"TRACE_SEQUENCE_FILE"}
-
+        # Validate that only valid headers are being loaded
         unknown_headers = headers_to_load - allowed_headers
         if unknown_headers:
             raise ValueError(f"Unknown headers {', '.join(unknown_headers)}")
 
-        # Open the SEG-Y file and memory map it
-        if endian not in ENDIANNESS:
-            raise ValueError(f"Unknown endian, must be one of {', '.join(ENDIANNESS)}")
-        self.endian = endian
-        self.segy_handler = segyio.open(self.path, mode="r", endian=endian, ignore_geometry=True)
-        self.segy_handler.mmap()
+        # Open the SEG-Y file and set samples-related attributes of the file
+        self.loader = Loader(self.path, engine=engine, endian=endian, ignore_geometry=True)
+        sample_interval = get_first_defined(sample_interval, self.loader.sample_interval / 1000)
+        if sample_interval <= 0:
+            raise ValueError("Sample interval must be positive, please provide a valid sample_interval")
+        self.file_samples = self.create_samples(self.loader.n_samples, sample_interval, delay)
+        self.file_sample_interval = sample_interval
+        self.file_delay = delay
 
-        # Get attributes from the source SEG-Y file.
-        self.file_sample_rate = self._infer_sample_rate()
-        self.file_samples = (np.arange(self.segy_handler.trace.shape) * self.file_sample_rate).astype(np.float32)
-
-        # Set samples and sample_rate according to passed `limits`.
+        # Set samples and sample_rate according to passed `limits`
         self.limits = None
         self.samples = None
-        self.sample_rate = None
+        self.sample_interval = None
+        self.delay = None
         self.set_limits(limits)
 
-        # Load trace headers
-        file_metrics = self.segy_handler.xfd.metrics()
-        self.segy_format = file_metrics["format"]
-        self.trace_data_offset = file_metrics["trace0"]
-        self.n_file_traces = file_metrics["tracecount"]
-        headers = load_headers(path, headers_to_load, trace_data_offset=self.trace_data_offset,
-                               trace_size=file_metrics["trace_bsize"], n_traces=self.n_file_traces,
-                               endian=endian, chunk_size=chunk_size, n_workers=n_workers, bar=bar)
-
-        # Reconstruct TRACE_SEQUENCE_FILE header
-        tsf_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
-        headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1, dtype=tsf_dtype)
-
-        # Sort headers by the required index in order to optimize further subsampling and merging. Sorting preserves
-        # trace order from the file within each gather.
+        # Load trace headers and sort them by the required index in order to optimize further subsampling and merging.
+        # Sorting preserves trace order from the file within each gather.
+        pbar = partial(tqdm, desc="Trace headers loaded") if bar else False
+        headers = self.loader.load_headers(headers_to_load, reconstruct_tsf=True, sort_columns=True,
+                                           chunk_size=chunk_size, max_workers=n_workers, pbar=pbar)
         headers.set_index(header_index, inplace=True)
         headers.sort_index(kind="stable", inplace=True)
-
-        # Set loaded survey headers and construct its fast indexer
         self._headers = None
         self._indexer = None
         self.headers = headers
@@ -275,30 +272,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if validate:
             self.validate_headers()
 
-        # Data format code defined by bytes 3225–3226 of the binary header that can be conveniently loaded using numpy
-        # memmap. Currently only 3-byte integers (codes 7 and 15) and 4-byte fixed-point floats (code 4) are not
-        # supported and result in a fallback to loading using segyio.
-        endian_str = ">" if self.endian in {"big", "msb"} else "<"
-        format_to_mmap_dtype = {
-            1: np.uint8,  # IBM 4-byte float: read as 4 bytes and then manually transformed to an IEEE float32
-            2: endian_str + "i4",
-            3: endian_str + "i2",
-            5: endian_str + "f4",
-            6: endian_str + "f8",
-            8: np.int8,
-            9: endian_str + "i8",
-            10: endian_str + "u4",
-            11: endian_str + "u2",
-            12: endian_str + "u8",
-            16: np.uint8,
-        }
-
-        # Optionally create a memory map over traces data
-        self.trace_dtype = self.segy_handler.dtype  # Appropriate data type of a buffer to load a trace into
-        self.segy_trace_dtype = format_to_mmap_dtype.get(self.segy_format)  # Physical data type of traces on disc
-        self.use_segyio_trace_loader = use_segyio_trace_loader or self.segy_trace_dtype is None
-        self.traces_mmap = self._construct_traces_mmap()
-
         # Define all stats-related attributes
         self.has_stats = False
         self.min = None
@@ -306,7 +279,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.mean = None
         self.std = None
         self.quantile_interpolator = None
-        self.n_dead_traces = None
+
+        # calculated QC metrics
+        self.qc_metrics = {}
 
         # Define all bin-related attributes and automatically infer them if both INLINE_3D and CROSSLINE_3D are loaded
         self.has_inferred_binning = False
@@ -332,26 +307,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if {"INLINE_3D", "CROSSLINE_3D", "CDP_X", "CDP_Y"} <= headers_to_load:
             self.infer_geometry()
 
-    def _infer_sample_rate(self):
-        """Get sample rate from file headers."""
-        bin_sample_rate = self.segy_handler.bin[segyio.BinField.Interval]
-        trace_sample_rate = self.segy_handler.header[0][segyio.TraceField.TRACE_SAMPLE_INTERVAL]
-        # 0 means undefined sample rate, so it is removed from the set of sample rate values.
-        union_sample_rate = {bin_sample_rate, trace_sample_rate} - {0}
-        if len(union_sample_rate) != 1:
-            raise ValueError("Cannot infer sample rate from file headers: either both `Interval` (bytes 3217-3218 in "
-                             "the binary header) and `TRACE_SAMPLE_INTERVAL` (bytes 117-118 in the header of the "
-                             "first trace are undefined or they have different values.")
-        return union_sample_rate.pop() / 1000  # Convert sample rate from microseconds to milliseconds
-
-    def _construct_traces_mmap(self):
-        """Memory map traces data."""
-        if self.use_segyio_trace_loader:
-            return None
-        trace_shape = self.n_file_samples if self.segy_format != 1 else (self.n_file_samples, 4)
-        mmap_trace_dtype = np.dtype([("headers", np.uint8, 240), ("trace", self.segy_trace_dtype, trace_shape)])
-        return np.memmap(filename=self.path, mode="r", shape=self.n_file_traces, dtype=mmap_trace_dtype,
-                         offset=self.trace_data_offset)["trace"]
+    @property
+    def file_sample_rate(self):
+        """float: Sample rate of seismic traces in the source SEG-Y file. Measured in Hz."""
+        return 1000 / self.file_sample_interval
 
     @property
     def n_file_samples(self):
@@ -373,11 +332,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return len(self.get_headers(self.receiver_id_cols).drop_duplicates())
 
     @property
-    def dead_traces_marked(self):
-        """bool: `mark_dead_traces` called."""
-        return self.n_dead_traces is not None
-
-    @property
     def is_uphole(self):
         """bool or None: Whether the survey is uphole. `None` if uphole-related headers are not loaded."""
         has_uphole_times = "SourceUpholeTime" in self.available_headers
@@ -388,6 +342,28 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             return None
         return has_positive_uphole_times or has_positive_uphole_depths
 
+    @property
+    def stats_summary(self):
+        """str: Descriptive statistics of survey traces."""
+        if not self.has_stats:
+            raise ValueError("Global statistics were not calculated, call `Survey.collect_stats` first.")
+        msg = f"""
+        Survey statistics:
+        mean | std:                {self.mean:>10.2f} | {self.std:<10.2f}
+         min | max:                {self.min:>10.2f} | {self.max:<10.2f}
+         q01 | q99:                {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
+        """
+        return dedent(msg).strip()
+
+    @property
+    def qc_summary(self):
+        """str: Brief report about calculated metrics."""
+        if not self.qc_metrics:
+            raise ValueError("Metrics were not calculated, call `Survey.qc` first.")
+        summary = [metric.describe(self[metric.header_cols]) for metric in self.qc_metrics.values()]
+        msg = "Tracewise QC summary:\n" + "\n".join(summary)
+        return msg
+
     @GatherContainer.headers.setter
     def headers(self, headers):
         """Reconstruct trace positions on each headers assignment."""
@@ -395,25 +371,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         htp_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
         self.headers[HDR_TRACE_POS] = np.arange(self.n_traces, dtype=htp_dtype)
 
-    def __del__(self):
-        """Close SEG-Y file handler on survey destruction."""
-        self.segy_handler.close()
-
     def __getstate__(self):
-        """Create a survey's pickling state from its `__dict__` by setting SEG-Y file handler and memory mapped trace
-        data to `None`."""
-        state = copy(self.__dict__)
-        state["segy_handler"] = None
-        state["traces_mmap"] = None
+        """Create pickling state of a survey from its `__dict__`. Don't pickle `headers` and `indexer` if
+        `enable_fast_pickling` config option is set."""
+        state = self.__dict__.copy()
+        if config["enable_fast_pickling"]:
+            state["_headers"] = None
+            state["_indexer"] = None
         return state
-
-    def __setstate__(self, state):
-        """Recreate a survey from unpickled state, reopen its source SEG-Y file and reconstruct a memory map over
-        traces data."""
-        self.__dict__ = state
-        self.segy_handler = segyio.open(self.path, ignore_geometry=True)
-        self.segy_handler.mmap()
-        self.traces_mmap = self._construct_traces_mmap()
 
     def __str__(self):
         """Print survey metadata including information about the source file, field geometry if it was inferred and
@@ -428,7 +393,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Number of traces:          {self.n_traces}
         Trace length:              {self.n_samples} samples
-        Sample rate:               {self.sample_rate} ms
+        Sample interval:           {self.sample_interval} ms
+        Sample rate:               {self.sample_rate} Hz
         Times range:               [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:             {offset_range}
         Is uphole:                 {get_first_defined(self.is_uphole, "Unknown")}
@@ -472,20 +438,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Inline length:             {(self.inline_length / 1000):.2f} km
         Crossline length:          {(self.crossline_length / 1000):.2f} km
         """
-
+        msg = dedent(msg).strip()
         if self.has_stats:
-            msg += f"""
-        Survey statistics:
-        mean | std:                {self.mean:>10.2f} | {self.std:<10.2f}
-         min | max:                {self.min:>10.2f} | {self.max:<10.2f}
-         q01 | q99:                {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
-        """
+            msg += "\n\n" + self.stats_summary
 
-        if self.dead_traces_marked:
-            msg += f"""
-        Number of dead traces:     {self.n_dead_traces}
-        """
-        return dedent(msg).strip()
+        if self.qc_metrics:
+            msg += "\n\n" + self.qc_summary
+        return msg
 
     def info(self):
         """Print survey metadata including information about the source file, field geometry if it was inferred and
@@ -773,7 +732,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     # pylint: disable-next=too-many-statements
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None,
-                      chunk_size=10000, bar=True):
+                      chunk_size=10000, n_workers=None, bar=True, verbose=False):
         """Collect the following statistics by iterating over survey traces:
         1. Min and max amplitude,
         2. Mean amplitude and trace standard deviation,
@@ -800,25 +759,24 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         limits : int or tuple or slice, optional
             Time limits to be used for statistics calculation. `int` or `tuple` are used as arguments to init a `slice`
             object. If not given, `limits` passed to `__init__` are used. Measured in samples.
-        chunk_size : int, optional, defaults to 10000
+        chunk_size : int, optional, defaults to 1000
             The number of traces to be processed at once.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
+        verbose : bool, optional, defaults to False
+            Whether to print collected statistics.
 
         Returns
         -------
         survey : Survey
             The survey with collected stats. Sets `has_stats` flag to `True` and updates statistics attributes inplace.
         """
-        if not self.dead_traces_marked or self.n_dead_traces:
-            warnings.warn("The survey was not checked for dead traces or they were not removed. "
-                          "Run `remove_dead_traces` first.", RuntimeWarning)
 
-        limits = self.limits if limits is None else self._process_limits(limits)
         headers = self.headers
         if indices is not None:
             headers = self.get_headers_by_indices(indices)
         n_traces = len(headers)
+        limits = get_first_defined(limits, self.limits)
 
         if n_quantile_traces < 0:
             raise ValueError("n_quantile_traces must be non-negative")
@@ -826,7 +784,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         n_quantile_traces = min(n_traces, n_quantile_traces)
 
         # Sort traces by TRACE_SEQUENCE_FILE: sequential access to trace amplitudes is much faster than random
-        traces_pos = np.sort(get_cols(headers, "TRACE_SEQUENCE_FILE") - 1)
+        traces_pos = np.sort(get_cols(headers, "TRACE_SEQUENCE_FILE").to_numpy() - 1)
         quantile_traces_mask = np.zeros(n_traces, dtype=np.bool_)
         quantile_traces_mask[np.random.choice(n_traces, size=n_quantile_traces, replace=False)] = True
 
@@ -840,29 +798,40 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         chunk_traces_pos = np.split(traces_pos, chunk_borders)
         chunk_quantile_traces_mask = np.split(quantile_traces_mask, chunk_borders)
 
+        if n_workers is None:
+            n_workers = os.cpu_count()
+        n_workers = min(n_chunks, n_workers)
+
         # Define buffers. chunk_mean, chunk_var and chunk_weights have float64 dtype to be numerically stable
-        quantile_traces_buffer = []
-        global_min, global_max = np.float32("inf"), np.float32("-inf")
+        quantile_traces_buffer = [[] for _ in range(n_chunks)]
+        min_buffer = np.empty(n_chunks, dtype=np.float32)
+        max_buffer = np.empty(n_chunks, dtype=np.float32)
         mean_buffer = np.empty(n_chunks, dtype=np.float64)
         var_buffer = np.empty(n_chunks, dtype=np.float64)
         chunk_weights = np.array(chunk_sizes, dtype=np.float64) / n_traces
 
+        def collect_chunk_stats(i):
+            chunk = self.load_traces(chunk_traces_pos[i], limits=limits)
+            chunk_quantile_mask = chunk_quantile_traces_mask[i]
+            if chunk_quantile_mask.any():
+                quantile_traces_buffer[i] = chunk[chunk_quantile_mask].ravel()
+            min_buffer[i], max_buffer[i], mean_buffer[i], var_buffer[i] = calculate_trace_stats(chunk.ravel())
+            return len(chunk)
+
+        # Precompile njitted function to correctly initialize TBB from the main thread
+        _ = calculate_trace_stats(self.load_traces([0], limits=limits).ravel())
+
         # Accumulate min, max, mean and var values of traces chunks
         bar_desc = f"Calculating statistics for traces in survey {self.name}"
         with tqdm(total=n_traces, desc=bar_desc, disable=not bar) as pbar:
-            for i, (chunk_pos, chunk_quantile_mask) in enumerate(zip(chunk_traces_pos, chunk_quantile_traces_mask)):
-                chunk_traces = self.load_traces(chunk_pos, limits=limits)
-                if chunk_quantile_mask.any():
-                    quantile_traces_buffer.append(chunk_traces[chunk_quantile_mask].ravel())
+            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                for i in range(n_chunks):
+                    future = pool.submit(collect_chunk_stats, i)
+                    future.add_done_callback(lambda fut: pbar.update(fut.result()))
 
-                chunk_min, chunk_max, chunk_mean, chunk_var = calculate_trace_stats(chunk_traces.ravel())
-                global_min = min(chunk_min, global_min)
-                global_max = max(chunk_max, global_max)
-                mean_buffer[i] = chunk_mean
-                var_buffer[i] = chunk_var
-                pbar.update(len(chunk_traces))
-
-        # Calculate global survey mean and variance by its values in chunks
+        # Calculate global survey statistics by individual chunks
+        global_min = np.min(min_buffer)
+        global_max = np.max(max_buffer)
         global_mean = np.average(mean_buffer, weights=chunk_weights)
         global_var = np.average(var_buffer + (mean_buffer - global_mean)**2, weights=chunk_weights)
 
@@ -884,6 +853,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.quantile_interpolator = interp1d(q, quantiles)
 
         self.has_stats = True
+
+        if verbose:
+            print(self.stats_summary)
         return self
 
     def get_quantile(self, q):
@@ -914,115 +886,66 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         # return the same type as q: either single float or array-like
         return quantiles.item() if quantiles.ndim == 0 else quantiles
 
-    def mark_dead_traces(self, limits=None, bar=True):
-        """Mark dead traces (those having constant amplitudes) by setting a value of a new `DeadTrace`
-        header to `True` and store the overall number of dead traces in the `n_dead_traces` attribute.
-
-        Parameters
-        ----------
-        limits : int or tuple or slice, optional
-            Time limits to be used to detect dead traces. `int` or `tuple` are used as arguments to init a `slice`
-            object. If not given, `limits` passed to `__init__` are used. Measured in samples.
-        bar : bool, optional, defaults to True
-            Whether to show a progress bar.
-
-        Returns
-        -------
-        survey : Survey
-            The same survey with a new `DeadTrace` header created.
-        """
-
-        limits = self.limits if limits is None else self._process_limits(limits)
-
-        traces_pos = self["TRACE_SEQUENCE_FILE"] - 1
-        n_samples = len(self.file_samples[limits])
-
-        trace = np.empty(n_samples, dtype=self.trace_dtype)
-        dead_indices = []
-        for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
-                                  total=len(self.headers), disable=not bar):
-            self.load_trace_segyio(buf=trace, index=pos, limits=limits, trace_length=n_samples)
-            trace_min, trace_max, *_ = calculate_trace_stats(trace)
-
-            if math.isclose(trace_min, trace_max):
-                dead_indices.append(tr_index)
-
-        self.n_dead_traces = len(dead_indices)
-        self.headers[HDR_DEAD_TRACE] = False
-        self.headers.iloc[dead_indices, self.headers.columns.get_loc(HDR_DEAD_TRACE)] = True
-
-        return self
-
     #------------------------------------------------------------------------#
     #                            Loading methods                             #
     #------------------------------------------------------------------------#
 
-    def load_trace_segyio(self, buf, index, limits, trace_length):
-        """Load a single trace from a SEG-Y file by its position.
-
-        In order to optimize trace loading process, we use `segyio`'s low-level function `xfd.gettr`. Description of
-        its arguments is given below:
-            1. A buffer to write the loaded trace to,
-            2. An index of the trace in a SEG-Y file to load,
-            3. Unknown arg (always 1),
-            4. Unknown arg (always 1),
-            5. An index of the first trace element to load,
-            6. An index of the last trace element to load,
-            7. Trace element loading step,
-            8. The overall number of samples to load.
+    def load_traces(self, indices, limits=None, buffer=None, chunk_size=None, n_workers=None,
+                    return_samples_info=False):
+        """Load seismic traces by their indices.
 
         Parameters
         ----------
-        buf : 1d np.ndarray of self.trace_dtype
-            An empty array to save the loaded trace.
-        index : int
-            Trace position in the file.
-        limits : slice
-            Trace time range to load. Measured in samples.
-        trace_length : int
-            Total number of samples to load.
+        indices : 1d array-like
+            Indices of the traces to read.
+        limits : int or tuple or slice or None, optional
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, `limits` passed to `__init__` are used. Measured in samples.
+        buffer : 2d np.ndarray, optional
+            Buffer to read the data into. Created automatically if not given.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
+        return_samples_info : bool
+            Whether to also return sample interval and delay recording time of loaded traces.
 
         Returns
         -------
-        trace : 1d np.ndarray of self.trace_dtype
-            Loaded trace.
+        traces : 2d np.ndarray
+            Loaded seismic traces.
+        sample_interval : float
+            Sample interval of loaded seismic traces. Returned only if `return_samples_info` is `True`.
+        delay : float
+            Delay recording time of loaded seismic traces. Returned only if `return_samples_info` is `True`.
         """
-        return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
+        if chunk_size is None:
+            chunk_size = len(indices)
+        n_chunks, last_chunk_size = divmod(len(indices), chunk_size)
+        chunk_sizes = [chunk_size] * n_chunks
+        if last_chunk_size:
+            n_chunks += 1
+            chunk_sizes += [last_chunk_size]
+        chunk_borders = np.cumsum([0] + chunk_sizes)
 
-    def load_traces_segyio(self, traces_pos, limits=None):
-        """Load traces by their positions in the SEG-Y file using low-level `segyio` interface."""
-        limits = self.limits if limits is None else self._process_limits(limits)
-        samples = self.file_samples[limits]
-        n_samples = len(samples)
+        if n_workers is None:
+            n_workers = os.cpu_count()
+        n_workers = min(n_chunks, n_workers)
+        executor_class = ForPoolExecutor if n_workers == 1 else ThreadPoolExecutor
 
-        traces = np.empty((len(traces_pos), n_samples), dtype=self.trace_dtype)
-        for i, pos in enumerate(traces_pos):
-            self.load_trace_segyio(buf=traces[i], index=pos, limits=limits, trace_length=n_samples)
-        return traces
+        limits, n_samples, sample_interval, delay = self._get_limits_info(get_first_defined(limits, self.limits))
+        if buffer is None:
+            buffer = np.empty((len(indices), n_samples), dtype=self.loader.dtype)
 
-    def load_traces_mmap(self, traces_pos, limits=None):
-        """Load traces by their positions in the SEG-Y file from memory mapped trace data."""
-        limits = self.limits if limits is None else self._process_limits(limits)
-        if self.segy_format != 1:
-            return self.traces_mmap[traces_pos, limits]
-        # IBM 4-byte float case: reading from mmap with step is way more expensive
-        # than loading the whole trace with consequent slicing
-        traces = self.traces_mmap[traces_pos, limits.start:limits.stop]
-        if limits.step != 1:
-            traces = traces[:, ::limits.step]
-        traces_bytes = (traces[:, :, 0], traces[:, :, 1], traces[:, :, 2], traces[:, :, 3])
-        if self.endian in {"little", "lsb"}:
-            traces_bytes = traces_bytes[::-1]
-        return ibm_to_ieee(*traces_bytes)
+        with executor_class(max_workers=n_workers) as pool:
+            for start, end in zip(chunk_borders[:-1], chunk_borders[1:]):
+                pool.submit(self.loader.load_traces, indices[start:end], limits=limits, buffer=buffer[start:end])
 
-    def load_traces(self, traces_pos, limits=None):
-        """Load traces by their positions in the SEG-Y file."""
-        loader = self.load_traces_segyio if self.use_segyio_trace_loader else self.load_traces_mmap
-        traces = loader(traces_pos, limits=limits)
-        # Cast the result to a C-contiguous float32 array regardless of the dtype in the source file
-        return np.require(traces, dtype=np.float32, requirements="C")
+        if return_samples_info:
+            return buffer, sample_interval, delay
+        return buffer
 
-    def load_gather(self, headers, limits=None, copy_headers=False):
+    def load_gather(self, headers, limits=None, copy_headers=False, chunk_size=None, n_workers=None):
         """Load a gather with given `headers`.
 
         Parameters
@@ -1034,6 +957,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             given, `limits` passed to `__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the passed `headers` when instantiating the gather.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
 
         Returns
         -------
@@ -1042,13 +969,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         if copy_headers:
             headers = headers.copy()
-        traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE") - 1
-        limits = self.limits if limits is None else self._process_limits(limits)
-        samples = self.file_samples[limits]
-        data = self.load_traces(traces_pos, limits=limits)
-        return Gather(headers=headers, data=data, samples=samples, survey=self)
+        indices = get_cols(headers, "TRACE_SEQUENCE_FILE").to_numpy() - 1
+        data, sample_interval, delay = self.load_traces(indices, limits=limits, chunk_size=chunk_size,
+                                                        n_workers=n_workers, return_samples_info=True)
+        return Gather(headers=headers, data=data, sample_interval=sample_interval, delay=delay, survey=self)
 
-    def get_gather(self, index, limits=None, copy_headers=False):
+    def get_gather(self, index, limits=None, copy_headers=False, chunk_size=None, n_workers=None):
         """Load a gather with given `index`.
 
         Parameters
@@ -1060,15 +986,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             given, `limits` passed to `__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the subset of survey `headers` describing the gather.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
 
         Returns
         -------
         gather : Gather
             Loaded gather instance.
         """
-        return self.load_gather(self.get_headers_by_indices((index,)), limits=limits, copy_headers=copy_headers)
+        return self.load_gather(self.get_headers_by_indices((index,)), limits=limits, copy_headers=copy_headers,
+                                chunk_size=chunk_size, n_workers=n_workers)
 
-    def sample_gather(self, limits=None, copy_headers=False):
+    def sample_gather(self, limits=None, copy_headers=False, chunk_size=None, n_workers=None):
         """Load a gather with random index.
 
         Parameters
@@ -1078,76 +1009,29 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             given, `limits` passed to `__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the subset of survey `headers` describing the sampled gather.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
 
         Returns
         -------
         gather : Gather
             Loaded gather instance.
         """
-        return self.get_gather(index=np.random.choice(self.indices), limits=limits, copy_headers=copy_headers)
-
-    # pylint: disable=anomalous-backslash-in-string
-    def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
-                          delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
-        """Load times of first breaks from a file and save them to a new column in headers.
-
-        Each line of the file stores the first break time for a trace in the last column. The combination of all but
-        the last columns should act as a unique trace identifier and is used to match the trace from the file with the
-        corresponding trace in `self.headers`.
-
-        The file can have any format that can be read by `pd.read_csv`, by default, it's expected to have
-        whitespace-separated values.
-
-        Parameters
-        ----------
-        path : str
-            A path to the file with first break times in milliseconds.
-        trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
-            Headers, whose values are stored in all but the last columns of the file.
-        first_breaks_col : str, optional, defaults to 'FirstBreak'
-            Column name in `self.headers` where loaded first break times will be stored.
-        delimiter: str, defaults to '\s+'
-            Delimiter to use. See `pd.read_csv` for more details.
-        decimal : str, defaults to None
-            Character to recognize as decimal point.
-            If `None`, it is inferred from the first line of the file.
-        encoding : str, optional, defaults to "UTF-8"
-            File encoding.
-        inplace : bool, optional, defaults to False
-            Whether to load first break times inplace or to a survey copy.
-        kwargs : misc, optional
-            Additional keyword arguments to pass to `pd.read_csv`.
-
-        Returns
-        -------
-        self : Survey
-            A survey with loaded times of first breaks.
-
-        Raises
-        ------
-        ValueError
-            If there is not a single match of rows from the file with those in `self.headers`.
-        """
-        self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
-
-        # If decimal is not provided, try inferring it from the first line
-        if decimal is None:
-            with open(path, 'r', encoding=encoding) as f:
-                row = f.readline()
-            decimal = '.' if '.' in row else ','
-
-        trace_id_cols = to_list(trace_id_cols)
-        file_columns = trace_id_cols + [first_breaks_col]
-        first_breaks_df = pd.read_csv(path, delimiter=delimiter, names=file_columns, index_col=trace_id_cols,
-                                      decimal=decimal, encoding=encoding, **kwargs)
-        self.headers = self.headers.join(first_breaks_df, on=trace_id_cols, how="inner", rsuffix="_loaded")
-        if self.is_empty:
-            warnings.warn("Empty headers after first breaks loading", RuntimeWarning)
-        return self
+        return self.get_gather(index=np.random.choice(self.indices), limits=limits, copy_headers=copy_headers,
+                               chunk_size=chunk_size, n_workers=n_workers)
 
     #------------------------------------------------------------------------#
     #                       Survey processing methods                        #
     #------------------------------------------------------------------------#
+
+    def _get_limits_info(self, limits):
+        """Convert given `limits` to a `slice` and return it together with the number of samples, sample interval and
+        delay recording time these limits imply."""
+        limits = self.loader.process_limits(limits)
+        samples = self.file_samples[limits]
+        return limits, len(samples), self.file_sample_interval * limits.step, samples[0]
 
     def set_limits(self, limits):
         """Update default survey time limits that are used during trace loading and statistics calculation.
@@ -1157,7 +1041,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         limits : int or tuple or slice
             Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
             used as arguments to init a `slice`. The resulting object is stored in `self.limits` attribute and used to
-            recalculate `self.samples` and `self.sample_rate`. Measured in samples.
+            recalculate `self.samples`, `self.sample_interval` and `self.delay`. Measured in samples.
 
         Raises
         ------
@@ -1165,33 +1049,57 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             If negative step of limits was passed.
             If the resulting samples length is zero.
         """
-        self.limits = self._process_limits(limits)
+        self.limits, _, self.sample_interval, self.delay = self._get_limits_info(limits)
         self.samples = self.file_samples[self.limits]
-        self.sample_rate = self.file_sample_rate * self.limits.step
 
-    def _process_limits(self, limits):
-        """Convert given `limits` to a `slice`."""
-        if not isinstance(limits, slice):
-            limits = slice(*to_list(limits))
-        # Use .indices to avoid negative slicing range
-        limits = limits.indices(len(self.file_samples))
-        if limits[-1] < 0:
-            raise ValueError('Negative step is not allowed.')
-        if limits[1] <= limits[0]:
-            raise ValueError('Empty traces after setting limits.')
-        return slice(*limits)
-
-    def remove_dead_traces(self, limits=None, inplace=False, bar=True):
-        """ Remove dead (constant) traces from the survey.
-        Calls `mark_dead_traces` if it was not called before.
+    def filter_by_metric(self, metric_name, threshold=None, inplace=False, bad_only=False):
+        """Filter traces using metric with name `metric_name` and passed `threshold`.
 
         Parameters
         ----------
-        limits : int or tuple or slice, optional
-            Time limits to be used to detect dead traces if needed. `int` or `tuple` are used as arguments to init a
-            `slice` object. If not given, `limits` passed to `__init__` are used. Measured in samples.
+        metric_name : str
+            Name of the metric that is stored in `self.qc_metrics`.
+        threshold : int, float, array-like with 2 elements, optional, defaults to None
+            Threshold to use during filtration, see :func:`~metric.TracewiseMetric.binarize` docs for more info.
+            If None, threshold defined in metric will be used.
         inplace : bool, optional, defaults to False
-            Whether to remove traces inplace or return a new survey instance.
+            Whether to transform the survey inplace or process its copy.
+        bad_only : bool, optional, defaults to False
+            If True, keep only traces that marked as `bad` by the metric.
+            Otherwise, keep traces approved by the metric.
+
+        Returns
+        -------
+        Survey
+            Filtered survey.
+        """
+        if metric_name not in self.qc_metrics:
+            raise ValueError(f"Metric with name {metric_name} has not been calculated yet.")
+
+        metric = self.qc_metrics[metric_name]
+        def binarize(metric_value):
+            bin_mask = metric.binarize(metric_value, threshold)
+            return bin_mask if bad_only else ~bin_mask
+
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self.filter(binarize, cols=metric_name, inplace=True)
+        return self
+
+    def remove_dead_traces(self, header_name=None, chunk_size=1000, n_workers=None, inplace=False, bar=True):
+        """ Remove dead (constant) traces from the survey.
+        Calculates :class:`~survey.metrics.DeadTrace` if it was not calculated.
+
+        Parameters
+        ----------
+        header_name : str, optional, defaults to None
+            Name of the header column with marked dead traces.
+        chunk_size : int, optional, defaults to 1000
+            Number of traces loaded on each iteration.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to find and remove dead traces. Defaults to the
+            number of cpu cores.
+        inplace : bool, optional, defaults to False
+            Whether to transform the survey inplace or process its copy.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
 
@@ -1201,11 +1109,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Survey with no dead traces.
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
-        if not self.dead_traces_marked:
-            self.mark_dead_traces(limits=limits, bar=bar)
+        if header_name is None:
+            header_name = DeadTrace.__name__
+            if header_name not in self.headers:
+                self.qc(DeadTrace, chunk_size=chunk_size, n_workers=n_workers, bar=bar)
 
-        self.filter(lambda dt: ~dt, cols=HDR_DEAD_TRACE, inplace=True)
-        self.n_dead_traces = 0
+        self.filter_by_metric(header_name, inplace=True)
         return self
 
     #------------------------------------------------------------------------#
@@ -1331,6 +1240,128 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.headers = headers
         return self
 
+    # pylint: disable-next=invalid-name
+    def qc(self, metrics=None, chunk_size=1000, n_workers=None, bar=True, overwrite=True, verbose=False):
+        """Perform quality control of the traces in the survey.
+
+        The following metrics are calculated for each trace by default:
+        * A boolean indicator of a dead trace,
+        * Absolute value of the trace's mean scaled by trace's std,
+        * Maximum absolute amplitude value scaled by trace's std,
+        * The maximum number of consecutive values clipped with either minimum or maximum trace amplitude,
+        * The maximum number of consecutive identical amplitudes.
+
+        The metrics are calculated in parallel threads each processing no more than `chunk_size` traces. The resulting
+        values are stored in `self.headers` under the name defined by `metric.header_cols` which usually matches the
+        name of the metric class.
+
+        Some metrics, however, store not their values but some intermediate results which will be aggregated into the
+        actual metric value upon `construct_qc_map` call. For example, metrics that compute window-based RMS amplitudes
+        create two columns in `headers`: one with the sum of squared amplitudes and another with the number of
+        amplitudes in the window for each trace. This allows constructing RMS maps aggregated by different types of
+        gathers (e.g. sources or receivers) without metric recalculation.
+
+        Examples
+        --------
+        Define metrics to calculate:
+            - Indicator of a dead (constant) trace:
+            >>> dead_trace = DeadTrace()
+            - Spike indicator with required `muter` parameter:
+            >>> spikes = Spikes(muter=muter)
+            - Maximum absolute amplitude value divided by trace's std, note that a metric can be defined directly by
+              the metric class, not an instance:
+            >>> max_abs = TraceMaxAbs
+            - RMS in a window located in a signal zone with required window parameters and metric name:
+            >>> signal_rms = WindowRMS(offsets=[650, 2000], times=[1000, 1400], name="SignalWindowRMS")
+            - RMS in a window located in a noise zone with required parameters:
+            >>> noise_rms = WindowRMS(offsets=[650, 2000], times=[100, 500], name="NoiseWindowRMS")
+
+        Compute provided metrics:
+        >>> survey.qc([dead_trace, spikes, max_abs, signal_rms, noise_rms])
+
+        It is not necessary to define instance of tracewise metric. For metrics that do not have required arguments one
+        may use only class name:
+        >>> survey.qc(TraceMaxAbs)
+
+        Parameters
+        ----------
+        metrics : TracewiseMetric or array-like of TracewiseMetric, optional
+            Metrics to calculate. If `None`, metrics listed in `DEFAULT_TRACEWISE_METRICS` are calculated.
+        chunk_size : int, optional, defaults to 1000
+            Number of traces processed in one thread.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to compute metrics. Defaults to the number of cpu
+            cores.
+        bar : bool, optional, defaults to True
+            Whether to show a progress bar.
+        overwrite : bool, optional, defaults to True
+            Whether to rewrite metrics that were previously calculated or skip them.
+        verbose : bool, optional, defaults to False
+            Whether to print QC results.
+
+        Returns
+        -------
+        Survey
+            Survey with metrics stored in `self.qc_metrics` and metrics values in `self.headers`.
+
+        Raises
+        ------
+        ValueError
+            If `overwrite` is `False` and any of the given metrics were previously calculated.
+        """
+        if metrics is None:
+            metrics = DEFAULT_TRACEWISE_METRICS
+        metrics, _ = initialize_metrics(metrics, metric_class=TracewiseMetric)
+
+        overwrite_metric = {metric.name for metric in metrics} & self.qc_metrics.keys()
+        if overwrite_metric:
+            msg = ', '.join(overwrite_metric)
+            if not overwrite:
+                metrics = [metric for metric in metrics if metric.name not in self.qc_metrics]
+                if not len(metrics):
+                    warnings.warn("All metrics already calculated. Use `overwrite=True` to recalculate them.")
+                    return self
+            else:
+                warnings.warn(f"{msg} already calculated and will be rewritten.")
+
+        n_chunks = self.n_traces // chunk_size + (1 if self.n_traces % chunk_size else 0)
+        if n_workers is None:
+            n_workers = os.cpu_count()
+        n_workers = min(n_chunks, n_workers)
+
+        _, idx_sort, idx_orig = np.unique(self['TRACE_SEQUENCE_FILE'], return_index=True, return_inverse=True)
+
+        def calc_metrics(ixs):
+            gather = self.load_gather(self.headers.iloc[ixs])
+            results = {}
+            for metric in metrics:
+                # Save header_cols since the metric may become partial and the attribute will be unreachable
+                header_cols = metric.header_cols
+                if isinstance(metric, BaseWindowRMSMetric):
+                    metric = partial(metric, return_rms=False)
+                results.update(zip(to_list(header_cols), np.atleast_2d(metric(gather))))
+            return pd.DataFrame(results)
+
+        # Precompile all njit decorated metrics to avoid hanging of the ThreadPoolExecutor upon the first call
+        _ = calc_metrics([0])
+
+        futures = []
+        with tqdm(total=self.n_traces, desc="Traces processed", disable=not bar) as pbar:
+            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                for i in range(n_chunks):
+                    future = pool.submit(calc_metrics, idx_sort[i * chunk_size: (i + 1) * chunk_size])
+                    future.add_done_callback(lambda fut: pbar.update(len(fut.result())))
+                    futures.append(future)
+
+        results = pd.concat([future.result() for future in futures], ignore_index=True, copy=False).iloc[idx_orig]
+        results.index = self.headers.index
+        self.headers[results.columns] = results
+        self.qc_metrics.update({metric.name: metric for metric in metrics})
+
+        if verbose:
+            print(self.qc_summary)
+        return self
+
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
@@ -1381,7 +1412,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         SurveyGeometryPlot(self, **kwargs).plot()
 
-    def _construct_map(self, values, name, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
+    def _construct_map(self, values, metric, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None,
+                       **kwargs):
         """Construct a metric map of `values` aggregated by gather, whose type is defined by `by`."""
         by_to_cols = {
             "source": (self.source_id_cols, ["SourceX", "SourceY"]),
@@ -1399,19 +1431,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             raise ValueError(f"by must be one of {', '.join(by_to_cols.keys())} but {by} given.")
         index_cols = get_first_defined(id_cols, index_cols)
 
+        metric = SurveyAttribute(name=metric) if isinstance(metric, str) else metric
         metric_data = self.get_headers(coords_cols)
         if index_cols is not None:
             index_cols = to_list(index_cols)
             metric_data[index_cols] = self[index_cols]
-        metric_data[name] = values
+        metric_data[metric.header_cols] = values
         if drop_duplicates:
             metric_data.drop_duplicates(inplace=True)
         index = metric_data[index_cols] if index_cols is not None else None
         coords = metric_data[coords_cols]
-        values = metric_data[name]
+        values = metric_data[metric.header_cols]
 
-        metric = SurveyAttribute(name=name).provide_context(survey=self)
-        return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)
+        metric = metric.provide_context(survey=self)
+        return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size, **kwargs)
 
     def construct_header_map(self, col, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
         """Construct a metric map of trace header values aggregated by gather.
@@ -1449,7 +1482,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         header_map : BaseMetricMap
             Constructed header map.
         """
-        return self._construct_map(self[col], name=col, by=by, id_cols=id_cols, drop_duplicates=drop_duplicates,
+        return self._construct_map(self[col], metric=col, by=by, id_cols=id_cols, drop_duplicates=drop_duplicates,
                                    agg=agg, bin_size=bin_size)
 
     def construct_fold_map(self, by, id_cols=None, agg=None, bin_size=None):
@@ -1481,8 +1514,109 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         fold_map : BaseMetricMap
             Constructed fold map.
         """
-        tmp_map = self._construct_map(np.ones(self.n_traces), name="fold", by=by, id_cols=id_cols, agg="sum")
+        tmp_map = self._construct_map(np.ones(self.n_traces), metric="fold", by=by, id_cols=id_cols, agg="sum")
         index = tmp_map.index_data[tmp_map.index_cols]
         coords = tmp_map.index_data[tmp_map.coords_cols]
         values = tmp_map.index_data[tmp_map.metric_name]
         return tmp_map.metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)
+
+    def construct_qc_maps(self, metric_names=None, by=None, id_cols=None, agg=None, bin_size=None):
+        """Construct a metric map of tracewise metric values aggregated by gathers.
+
+        A ratio of any two RMS metrics may be calculated by passing their names separated by `/` in `metric_names`,
+        which allows displaying more complex metrics such as signal-to-noise ratio by gather. By default, RMS
+        amplitudes are first calculated for each gather defined by `by` and then used to calculate the ratio. If
+        `tracewice` flag is set to `True` (see examples below), RMS amplitudes or ratios are first independently
+        calculated for each trace and then aggregated by gathers.
+
+        Examples
+        --------
+        Define metrics to calculate:
+            - Maximum absolute amplitude value divided by trace's std:
+            >>> max_abs = TraceMaxAbs
+            - RMS in a window located in a signal zone:
+            >>> signal_rms = WindowRMS(offsets=[650, 2000], times=[1000, 1400], name="SignalWindowRMS")
+            - RMS in a window located in a noise zone:
+            >>> noise_rms = WindowRMS(offsets=[650, 2000], times=[100, 500], name="NoiseWindowRMS")
+
+        Compute provided metrics:
+        >>> survey.qc([max_abs, signal_rms, noise_rms])
+
+        Construct a metric map of:
+            - metric with name `TraceMaxAbs` by shots with `max` aggregation:
+            >>> qc_map = survey.construct_qc_maps(metric_names="TraceMaxAbs", by="shot", agg="max")
+
+            - tracewise signal RMS aggregated by shots:
+            >>> tracewise_qc_map = survey.construct_qc_maps(metric_names={"metric": "SignalWindowRMS",
+                                                                          "tracewise":True}, by="shot")
+            - signal-to-noise ratio map by shots:
+            >>> ratio_qc_map = survey.construct_qc_maps(metric_names="SignalWindowRMS/NoiseWindowRMS", by="shot")
+
+        Plot the map of the first metric:
+        >>> qc_map.plot()
+
+        The map allows for interactive plotting: a gather type defined by `by` with a tracewise metric value on top of
+        the gather plot will be displayed on click on the map. Depending on the metric, other arguments may be passed
+        to the metric plot. See `metric.plot()` for avalible arguments. In this example, the gather will be sorted by
+        `offset` and the default threshold for the metric will be changed to 20:
+        >>> qc_map.plot(interactive=True, threshold=20, sort_by="offset")
+
+        The map in interactive mode also allows to pass arguments for a gather plot. In this example, the gather will
+        be plotted in `seismogram` mode:
+        >>> qc_map.plot(interactive=True, plot_on_click_kwargs={"mode": "seismogram"})
+
+        Parameters
+        ----------
+        metric_names : str, dict or array-like, optional, defaults to None
+            Metrics names to construct metrics maps for.
+            If `dict`, allows passing any kwargs to `construct_map` method of the specified metric.
+            The following keys are supported:
+            - `metric`: metric name,
+            - Any additional arguments for `metric.construct_map`.
+            If array-like, each element should be `str` or `dict`.
+            If None, maps for all metrics that were calculated for this survey are built.
+        by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
+            Gather type to aggregate metric values over. Note that this argument cannot be None and should be defined.
+        id_cols : str or list of str, optional
+            Trace headers that uniquely identify a gather of the chosen type. Acts as an index of the resulting map. If
+            not given and `by` represents either a common source or common receiver gather, `self.source_id_cols` or
+            `self.receiver_id_cols` are used respectively.
+        agg : str or callable, optional, defaults to "mean"
+            An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
+        bin_size : int, float or array-like with length 2, optional
+            Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
+
+        Returns
+        -------
+        metrics_maps : BaseMetricMap or list of BaseMetricMap
+            Calculated metrics maps. Has the same length as `metric_names`.
+        """
+        is_single_metric = isinstance(metric_names, (str, dict))
+        if metric_names is None:
+            metric_names = list(self.qc_metrics)
+        metrics_list = to_list(metric_names)
+        for metric in metrics_list:
+            if isinstance(metric, dict) and "metric" not in metric:
+                raise ValueError("Missing key `metric` for one of the passed metrics in `metric_names`")
+        # Copy dicts to prevent deleting keys from passed objects during metric map constructing
+        metrics_list = [{"metric": metric} if isinstance(metric, str) else metric.copy() for metric in metrics_list]
+
+        metric_maps = []
+        for metric_dict in metrics_list:
+            metric_name = metric_dict.pop("metric")
+            if "/" in metric_name:
+                operand_metrics = list(map(lambda name: name.strip(), metric_name.split("/")))
+                if len(operand_metrics) != 2:
+                    raise ValueError(f"Exactly two metrics should be used for division, not {len(operand_metrics)}")
+                for metric in operand_metrics:
+                    if metric not in self.qc_metrics:
+                        raise ValueError(f'Metric with name "{metric}" is not calculated yet')
+                metric = MetricsRatio(*[self.qc_metrics[metric] for metric in operand_metrics])
+            elif metric_name in self.qc_metrics:
+                metric = self.qc_metrics[metric_name]
+            else:
+                raise ValueError(f'Metric with name "{metric_name}" is not calculated yet')
+            metric_map = self._construct_map(self.get_headers(metric.header_cols), metric=metric, by=by,
+                                             id_cols=id_cols, agg=agg, bin_size=bin_size, **metric_dict)
+            metric_maps.append(metric_map)
+        return metric_maps[0] if is_single_metric else metric_maps
