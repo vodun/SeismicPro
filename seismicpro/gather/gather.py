@@ -314,9 +314,12 @@ class Gather(TraceContainer, SamplesContainer):
             if not np.can_cast(column_data, headers.dtypes[column]):
                 headers[column] = headers[column].astype(column_data.dtype)
 
-            # FIXME: Workaround for a pandas bug https://github.com/pandas-dev/pandas/issues/48998
-            # iloc may call unnecessary copy of the whole column before setitem
-            headers[column].array[pos] = column_data
+            # Avoid warning related to the workaround
+            with warnings.catch_warnings(SettingWithCopyWarning):
+                warnings.simplefilter("ignore")
+                # FIXME: Workaround for a pandas bug https://github.com/pandas-dev/pandas/issues/48998
+                # iloc may call unnecessary copy of the whole column before setitem
+                headers[column].array[pos] = column_data
         return self
 
     #------------------------------------------------------------------------#
@@ -1309,11 +1312,11 @@ class Gather(TraceContainer, SamplesContainer):
         end_ixs = np.full(self.n_traces, fill_value=self.n_samples, dtype=np.int32)
 
         if window is not None:
-            if isinstance(window, (tuple, list, np.ndarray)):
-                raise ValueError(f"`window` should be an array-like, not {type(horizon_window_size)}")
+            if not isinstance(window, (tuple, list, np.ndarray)):
+                raise ValueError(f"`window` should be an array-like, not {type(window)}")
             if len(window) != 2:
                 raise ValueError(f"`window` must have exact two elements, not {len(window)}")
-            limits = times_to_indices(np.array(window), self.samples, round=True).astype(np.int32)
+            limits = self.times_to_indices(np.array(window), round=True).astype(np.int32)
             # Include the next index to mimic the behavior of conventional software
             limits[1] += 1
             start_ixs = np.full(self.n_traces, fill_value=limits[0], dtype=np.int32)
@@ -1330,9 +1333,9 @@ class Gather(TraceContainer, SamplesContainer):
                 raise ValueError("If `horizon_window_size` is array-like, it must have exactly two elements, not "\
                                  f"{len(horizon_window_size)}")
             start_times = np.clip(centers - horizon_window_size[0], 0, self.samples[-1])
-            start_ixs = times_to_indices(start_times, self.samples, round=True).astype(np.int32)
+            start_ixs = self.times_to_indices(start_times, round=True).astype(np.int32)
             end_times = np.clip(centers + horizon_window_size[1], 0, self.samples[-1])
-            end_ixs = times_to_indices(end_times, self.samples, round=True).astype(np.int32)
+            end_ixs = self.times_to_indices(end_times, round=True).astype(np.int32)
 
         func_dict = {
             "rms": stats.numba_rms,
