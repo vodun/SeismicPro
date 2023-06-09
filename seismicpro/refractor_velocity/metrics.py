@@ -1,29 +1,28 @@
 """Implements metrics for quality control of first breaks given the near-surface velocity model."""
+
 from math import ceil, floor
 from functools import partial, lru_cache
 
-import cv2
 import numpy as np
 from numba import njit
-from scipy.signal import hilbert
 
-from ..gather.utils.normalization import scale_maxabs, get_quantile, get_gather_stats, scale_standard
+from ..gather.utils.normalization import scale_maxabs, get_tracewise_quantile, get_stats, scale_standard
 from ..gather.utils.correction import get_hodograph
 from ..metrics import Metric
-from ..utils import get_first_defined, set_ticks, GEOGRAPHIC_COORDS, get_coords_cols, to_list
+from ..utils import get_first_defined, set_ticks, GEOGRAPHIC_COORDS, get_coords_cols
 
 
 class RefractorVelocityMetric(Metric):
     """Base metric class for quality control of refractor velocity field.
     Implements the following logic: `calc` method returns iterable of tracewise metric values,
     then `__call__` is used for gatherwise metric aggregation.
-    Default views are `plot_gather` and `plot_refracted_velocity`. 
-    `plot_gather` is parametrized for plotting metric values on top and above the gather plot.
+    Default views are `plot_refractor_velocity` utilizing `RefractorVelocity.plot` and `plot_gather`,
+    which is parametrized for plotting metric values on top and above the `Gather.plot`.
     Parameters needed for metric calculation and view plotting should be set as attributes, e.g. `first_breaks_header`.
 
     Parameters
     ----------
-    first_breaks_header : str, optional, defaults to None
+    first_breaks_header : str, optional
         Column name from `survey.headers` where times of first break are stored.
         If not provided, must be set before the metric call via `set_defaults`.
     correct_uphole : bool, optional, defaults to None
@@ -41,6 +40,7 @@ class RefractorVelocityMetric(Metric):
         self.survey = None
         self.field = None
         self.max_offset = None
+        self.is_geographic = None
         self.first_breaks_header = first_breaks_header
         self.correct_uphole = correct_uphole
 
@@ -50,7 +50,7 @@ class RefractorVelocityMetric(Metric):
         
         Parameters
         ----------
-        kwargs : misc.
+        kwargs : misc
             Dict with attributes to set.
         """
         for attr, attr_value in kwargs.items():
@@ -88,7 +88,7 @@ class RefractorVelocityMetric(Metric):
                                            self.vmax if invert_mask == 1 else self.vmin,
                                            metric_values.mean())
         return {"masks": metric_values * invert_mask, "threshold": mask_threshold * invert_mask}
-    
+
     @staticmethod
     @njit(nogil=True)
     def _make_windows(times, data, offsets, n_samples, sample_interval, delay):
@@ -106,16 +106,16 @@ class RefractorVelocityMetric(Metric):
 
         Parameters
         ----------
-        sort_by : str or iterable of str, optional.
+        sort_by : str or iterable of str, optional
             Headers names to sort the gather by.
-        threshold : int or float, optional, defaults to None
+        threshold : int or float, optional
             A value to use as a threshold for binarizing the metric values. If `self.is_lower_better` is `True`,
             metric values greater or equal than the `threshold` will be treated as bad and vice versa.
-        mask : bool, optional, defaults to True.
+        mask : bool, optional, defaults to True
             Whether to mask traces according to `threshold` on top of the gather plot.
-        top_header : bool, optional, defaults to True.
+        top_header : bool, optional, defaults to True
             Whether to show a header with metric values above the gather plot.
-        kwargs : misc, optional.
+        kwargs : misc, optional
             Additional keyword arguments to `gather.plot`
         """
         _ = coords
@@ -151,7 +151,7 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
 
     Parameters
     ----------
-    threshold_times : float, optional, defaults to 50.
+    threshold_times : float, optional, defaults to 50
         Threshold for the first breaks outliers metric calculation. Measured in milliseconds.
     first_breaks_header : str, optional, defaults to None
         Column name from `survey.headers` where times of first break are stored.
@@ -193,7 +193,7 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
 
         Returns
         -------
-        metric : np.ndarray of bool.
+        metric : np.ndarray of bool
             Array indicating whether each trace in the gather represents an outlier.
         """
         rv_times = refractor_velocity(gather["offset"])
@@ -236,19 +236,20 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
     @njit(nogil=True)
     def _calc(gather_data, offsets, picking_times, sample_interval, delay):
         """Calculate signal amplitudes at first break times."""
-        min_value, max_value = get_quantile(gather_data, np.array([0, 1]))
+        min_value, max_value = get_tracewise_quantile(gather_data, np.array([0, 1]))
         min_value, max_value = np.atleast_2d(min_value), np.atleast_2d(max_value)
         gather_data = scale_maxabs(gather_data, min_value=min_value, max_value=max_value, clip=False, eps=1e-10)
         return get_hodograph(gather_data, offsets, sample_interval, delay, picking_times, fill_value=0)
 
-    def calc(self, gather, refractor_velocity):
+    def calc(self, gather, refractor_velocity=None):
         """Return signal amplitudes at first break times.
 
         Parameters
         ----------
         gather : Gather
             A seismic gather to get offsets and times of first breaks from.
-
+        refractor_velocity : RefractorVelocity, optional
+            Argument is not used. Preserved for quality control consistency.
         Returns
         -------
         metric : np.ndarray of float
@@ -266,7 +267,8 @@ class FirstBreaksPhases(RefractorVelocityMetric):
     ----------
     target : float in range (-pi, pi] or str from {'max', 'min', 'transition'}, optional, defaults to 'max'
         Target phase value in the moment of first break: 0, pi, pi / 2 for `max`, `min` and `transition` respectively.
-    window_size : size of the window around the first break to attenuate during metric calculation. Measured in ms.
+    window_size : int
+        Size of the window around the first break to attenuate during metric calculation. Measured in ms.
     first_breaks_header : str, optional, defaults to None
         Column name from `survey.headers` where times of first break are stored.
         If not provided, must be set before the metric call via `set_defaults`.
@@ -292,13 +294,15 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         self.window_size = window_size
         super().__init__(first_breaks_header, correct_uphole, name)
 
-    def calc(self, gather, refractor_velocity):
+    def calc(self, gather, refractor_velocity=None):
         """Return absolute deviation of the signal phase from target value in the moment of first break.        
 
         Parameters
         ----------
         gather : Gather
             A seismic gather to get offsets and times of first breaks from.
+        refractor_velocity : RefractorVelocity, optional
+            Argument is not used. Preserved for quality control consistency.
 
         Returns
         -------
@@ -307,9 +311,9 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         """
         _ = refractor_velocity
         # Normalize gather tracewise to intensify phase shifts
-        mean, std = get_gather_stats(gather.data)
+        mean, std = get_stats(gather.data)
         data = scale_standard(gather.data, mean, std, 1e-10)
-        n_samples = ceil(self.window_size / gather.sample_interval) 
+        n_samples = ceil(self.window_size / gather.sample_interval)
         n_samples |= 1
         windows = self._make_windows(gather[self.first_breaks_header], data, gather.offsets,
                                      n_samples, gather.sample_interval, gather.delay)
@@ -381,11 +385,6 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         self.window_size = window_size
         super().__init__(first_breaks_header, correct_uphole, name)
 
-    def get_views(self, sort_by=None, threshold=None, **kwargs):
-        """Return plotters of the metric views and parse `plot_gather_window` kwargs for interactive map plotting."""
-        views_list = [partial(self.plot_gather_window, sort_by=sort_by, threshold=threshold), self.plot_mean_hodograph]
-        return views_list, kwargs
-
     @staticmethod
     @njit(nogil=True)
     def _calc(traces_windows):
@@ -396,18 +395,15 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
             mean_hodograph[:, i] = np.nanmean(traces_windows[:, i])
         mean_hodograph_scaled = (mean_hodograph - np.mean(mean_hodograph)) / np.std(mean_hodograph)
 
-        traces_windows_scaled = np.empty_like(traces_windows)
+        corrs = np.empty(n_traces, dtype=traces_windows.dtype)
         for i in range(n_traces):
             trace_mean = np.nanmean(traces_windows[i])
             trace_std = np.nanstd(traces_windows[i])
-            traces_windows_scaled[i] = (traces_windows[i] - trace_mean) / trace_std
-
-        corrs = np.empty(n_traces, dtype=traces_windows.dtype)
-        for i in range(n_traces):
-            corrs[i] = np.nanmean(traces_windows_scaled[i] * mean_hodograph_scaled)
+            trace_window_scaled = (traces_windows[i] - trace_mean) / trace_std
+            corrs[i] = np.nanmean(trace_window_scaled * mean_hodograph_scaled)
         return corrs
 
-    def calc(self, gather, refractor_velocity):
+    def calc(self, gather, refractor_velocity=None):
         """Return signal correlation with mean hodograph in the given window around first break times
         for a scaled gather.
 
@@ -415,6 +411,8 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         ----------
         gather : Gather
             A seismic gather to get offsets and times of first breaks from.
+        refractor_velocity : RefractorVelocity, optional
+            Argument is not used. Preserved for quality control consistency.
 
         Returns
         -------
@@ -422,10 +420,15 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
             Window correlation with mean hodograph for each trace in the gather.
         """
         _ = refractor_velocity
-        n_samples = ceil(self.widow_size / gather.sample_interval)
+        n_samples = ceil(self.window_size / gather.sample_interval)
         traces_windows = self._make_windows(gather[self.first_breaks_header], gather.data, gather["offset"],
                                             n_samples, gather.sample_interval, gather.delay)
         return self._calc(traces_windows)
+
+    def get_views(self, sort_by=None, threshold=None, **kwargs):
+        """Return plotters of the metric views and parse `plot_gather_window` kwargs for interactive map plotting."""
+        views_list = [partial(self.plot_gather_window, sort_by=sort_by, threshold=threshold), self.plot_mean_hodograph]
+        return views_list, kwargs
 
     def plot_gather_window(self, coords, ax, index, sort_by=None, threshold=None, mask=True,
                            top_header=True, **kwargs):
@@ -450,10 +453,10 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         gather.samples = gather.create_samples(traces_windows.shape[1], gather.sample_interval, gather.delay)
         plotting_kwargs.update(kwargs)
         gather.plot(ax=ax, **plotting_kwargs)
-        set_ticks(ax, axis="y", label="Time from first break, ms",
-                  num=min(self.window_size // int(gather.sample_interval), 9),
-                  major_labels=np.arange(-self.window_size // 2, self.window_size // 2 + 1, int(gather.sample_interval),
-                                         dtype=np.int32))
+        num_y_ticks = min(self.window_size // int(gather.sample_interval), 9)
+        set_ticks(ax, axis="y", label="Time from first break, ms", num=num_y_ticks,
+                  major_labels=np.linspace(-self.window_size // 2, self.window_size // 2,
+                                            self.window_size, dtype=np.int32))
 
     def plot_mean_hodograph(self, coords, ax, index, **kwargs):
         """Plot mean trace in the scaled gather around the first break with length of the given window size."""
@@ -469,11 +472,11 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         gather.plot(mode="wiggle", ax=ax, **kwargs)
         fb_time_mean = np.mean(gather[self.first_breaks_header], dtype=np.int32)
         set_ticks(ax, axis="x", label="Amplitude", num=3)
-        set_ticks(ax, axis="y", label="Time, ms",
-                  num=min(self.window_size // int(gather.sample_interval) + 1, 9),
-                  major_labels=np.arange((fb_time_mean - self.window_size // 2),
-                                         (fb_time_mean + self.window_size // 2 + 1),
-                                          int(gather.sample_interval), dtype=np.int32))
+        num_y_ticks = min(self.window_size // int(gather.sample_interval) + 1, 9)
+        set_ticks(ax, axis="y", label="Time, ms", num=num_y_ticks,
+                  major_labels=np.linspace((fb_time_mean - self.window_size // 2),
+                                           (fb_time_mean + self.window_size // 2),
+                                            self.window_size, dtype=np.int32))
 
 class DivergencePoint(RefractorVelocityMetric):
     """The divergence point metric for first breaks.

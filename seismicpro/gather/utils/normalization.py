@@ -31,7 +31,7 @@ def clip_inplace(data, data_min, data_max):
     return data.reshape(data_shape)
 
 @njit(nogil=True, parallel=True)
-def get_gather_stats(data):
+def get_stats(data):
     """ Calculate mean and standard deviation.
 
     Parameters
@@ -78,8 +78,8 @@ def scale_standard(data, mean, std, eps):
     return (data - mean) / (std + eps)
 
 @njit(nogil=True, parallel=True)
-def get_quantile(data, q):
-    """Compute the `q`-th quantile of the data.
+def get_tracewise_quantile(data, q):
+    """Compute the `q`-th quantile of the data tracewise.
 
     Parameters
     ----------

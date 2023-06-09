@@ -642,13 +642,13 @@ class RefractorVelocityField(SpatialField):
         By default, the following metrics are calculated:
         * The first break outliers metric. A first break time is considered to be an outlier if it differs from the
         expected arrival time defined by an offset-traveltime curve by more than a given threshold.
-        * Mean amplitude of the signal in the moment of first break,
-        * Mean absolute deviation of the signal phase from target value in the moment of first break,
-        * Mean Pearson correlation coefficient of trace with mean hodograph in window around the first break,
+        * Mean amplitude of the signal in the moment of first break.
+        * Mean absolute deviation of the signal phase from target value in the moment of first break.
+        * Mean Pearson correlation coefficient of trace with mean hodograph in window around the first break.
 
         Parameters
         ----------
-        metrics : instance or subclass of :class:`~metrics.RefractorVelocityMetric` of list of them, optional.
+        metrics : instance or subclass of :class:`~metrics.RefractorVelocityMetric` or list of them, optional
             Metrics to calculate. Defaults to those defined in `~metrics.REFRACTOR_VELOCITY_QC_METRICS`.
         survey : Survey, optional
             Survey to load traces from. Defaults to a survey the field is linked to.
