@@ -682,8 +682,8 @@ class RefractorVelocityField(SpatialField):
         for metric in metrics_instances:
             metric.set_defaults(first_breaks_header=first_breaks_header, correct_uphole=correct_uphole)
 
-        coords_cols = to_list(get_coords_cols(survey.indexed_by))
-        is_geographic = tuple(coords_cols) in GEOGRAPHIC_COORDS
+        coords_cols = get_coords_cols(survey.indexed_by)
+        is_geographic = coords_cols in GEOGRAPHIC_COORDS
 
         gather_change_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0]
         gather_coords = survey[coords_cols][gather_change_ix]

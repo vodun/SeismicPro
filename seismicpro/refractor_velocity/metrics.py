@@ -164,7 +164,6 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
         Metric name, overrides default name if given.
     """
 
-    name = "first_breaks_outliers"
     vmin = 0
     vmax = 0.05
     is_lower_better = True
@@ -229,7 +228,6 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
         Metric name, overrides default name if given.
     """
 
-    name = "first_breaks_amplitudes"
     is_lower_better = None
 
     @staticmethod
@@ -239,7 +237,7 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
         min_value, max_value = get_tracewise_quantile(gather_data, np.array([0, 1]))
         min_value, max_value = np.atleast_2d(min_value), np.atleast_2d(max_value)
         gather_data = scale_maxabs(gather_data, min_value=min_value, max_value=max_value, clip=False, eps=1e-10)
-        return get_hodograph(gather_data, offsets, sample_interval, delay, picking_times, fill_value=0)
+        return get_hodograph(gather_data, offsets, sample_interval, delay, picking_times, fill_value=np.nan)
 
     def calc(self, gather, refractor_velocity=None):
         """Return signal amplitudes at first break times.
@@ -259,6 +257,11 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
         return self._calc(gather.data, gather["offset"], gather[self.first_breaks_header],
                           gather.sample_interval, gather.delay)
 
+    def plot_gather(self, *args, **kwargs):
+        """Plot the gather with amplitude values on top of the gather plot."""
+        kwargs["mask"] = kwargs.pop("mask", False)
+        super().plot_gather(*args, **kwargs)
+
 
 class FirstBreaksPhases(RefractorVelocityMetric):
     """Mean absolute deviation of the signal phase from target value in the moment of first break.
@@ -267,8 +270,9 @@ class FirstBreaksPhases(RefractorVelocityMetric):
     ----------
     target : float in range (-pi, pi] or str from {'max', 'min', 'transition'}, optional, defaults to 'max'
         Target phase value in the moment of first break: 0, pi, pi / 2 for `max`, `min` and `transition` respectively.
-    window_size : int
+    window_size : int, defaults to 40
         Size of the window around the first break to attenuate during metric calculation. Measured in ms.
+        Should be approximately equal to phase length around the first break.
     first_breaks_header : str, optional, defaults to None
         Column name from `survey.headers` where times of first break are stored.
         If not provided, must be set before the metric call via `set_defaults`.
@@ -280,12 +284,11 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         Metric name, overrides default name if given.
     """
 
-    name = "first_breaks_phases"
     vmin = 0
     vmax = np.pi / 2
     is_lower_better = True
 
-    def __init__(self, target="max", window_size=61, first_breaks_header=None, correct_uphole=None, name=None):
+    def __init__(self, target="max", window_size=40, first_breaks_header=None, correct_uphole=None, name=None):
         if isinstance(target, str):
             if target not in {"max", "min", "transition"}:
                 raise KeyError("`target` should be one of {'max', 'min', 'transition'} or float.")
@@ -313,8 +316,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         # Normalize gather tracewise to intensify phase shifts
         mean, std = get_stats(gather.data)
         data = scale_standard(gather.data, mean, std, 1e-10)
-        n_samples = ceil(self.window_size / gather.sample_interval)
-        n_samples |= 1
+        n_samples = ceil(self.window_size / gather.sample_interval) | 1
         windows = self._make_windows(gather[self.first_breaks_header], data, gather.offsets,
                                      n_samples, gather.sample_interval, gather.delay)
         filt = self._get_filter(n_samples)
@@ -327,24 +329,23 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         filt_samples = np.arange(half_n_samples) + 1
         half_filt = 2 * np.sin(np.pi * filt_samples / 2)**2 / (np.pi * filt_samples)
         filt = np.concatenate((-half_filt[::-1], np.asarray([0.]), half_filt)) * np.hamming(2 * half_n_samples + 1)
-        return filt
+        return np.ascontiguousarray(filt[::-1])
 
     @staticmethod
     @njit(nogil=True)
     def _calc_phase_in_windows(windows, filt, target):
         n_traces, n_samples = windows.shape
         half_n_samples = floor(n_samples / 2)
-        hilbert = np.empty(n_traces)
+        hilbert = np.empty(n_traces, dtype=windows.dtype)
         for i in range(n_traces):
-            hilbert[i] = np.dot(windows[i], filt[::-1])
-
-        fb_angles = np.arctan2(hilbert, windows[:, half_n_samples])
+            hilbert[i] = np.dot(windows[i], filt)
+        fb_phases = np.arctan2(hilbert, windows[:, half_n_samples])
         # Map angles to range (target - pi, target + pi]
         if target > 0:
-            fb_angles = np.where(fb_angles > target - np.pi, fb_angles, fb_angles + (2 * np.pi))
+            fb_phases = np.where(fb_phases > target - np.pi, fb_phases, fb_phases + (2 * np.pi))
         else:
-            fb_angles = np.where(fb_angles < target + np.pi, fb_angles, fb_angles - (2 * np.pi))
-        return fb_angles - target
+            fb_phases = np.where(fb_phases < target + np.pi, fb_phases, fb_phases - (2 * np.pi))
+        return fb_phases - target
 
     def __call__(self, gather, refractor_velocity):
         """Return mean absolute deviation of the signal phase from target value in the moment of first break
@@ -375,7 +376,6 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         Metric name, overrides default name if given.
     """
 
-    name = "first_breaks_correlations"
     views = ("plot_gather_window", "plot_mean_hodograph")
     vmin = 0
     vmax = 1
@@ -420,7 +420,7 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
             Window correlation with mean hodograph for each trace in the gather.
         """
         _ = refractor_velocity
-        n_samples = ceil(self.window_size / gather.sample_interval)
+        n_samples = ceil(self.window_size / gather.sample_interval) | 1
         traces_windows = self._make_windows(gather[self.first_breaks_header], gather.data, gather["offset"],
                                             n_samples, gather.sample_interval, gather.delay)
         return self._calc(traces_windows)
@@ -503,7 +503,6 @@ class DivergencePoint(RefractorVelocityMetric):
         Metric name, overrides default name if given.
     """
 
-    name = "divergence_point"
     is_lower_better = False
 
     def __init__(self, threshold_times=50, step=100, tol=0.1, first_breaks_header=None, correct_uphole=None, name=None):

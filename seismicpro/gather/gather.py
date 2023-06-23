@@ -545,15 +545,7 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If `use_global` is `True` but global statistics were not calculated.
         """
-        if use_global:
-            min_value, max_value = self.survey.get_quantile([q_min, q_max])
-        elif not tracewise:
-            min_value, max_value = self.get_quantile([q_min, q_max], tracewise=False)
-        else:
-            min_value, max_value = normalization.get_tracewise_quantile(self.data, [q_min, q_max])
-        # Use np.atleast_2d(array) to make the array 2-dimensional by adding dummy trailing axes
-        # for further broadcasting to work tracewise
-        min_value, max_value = np.atleast_2d(min_value), np.atleast_2d(max_value)
+        min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
         self.data = normalization.scale_maxabs(self.data, min_value, max_value, clip, np.float32(eps))
         return self
 
@@ -598,15 +590,7 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If `use_global` is `True` but global statistics were not calculated.
         """
-        if use_global:
-            min_value, max_value = self.survey.get_quantile([q_min, q_max])
-        elif not tracewise:
-            min_value, max_value = self.get_quantile([q_min, q_max], tracewise=False)
-        else:
-            min_value, max_value = normalization.get_tracewise_quantile(self.data, [q_min, q_max])
-        # Use np.atleast_2d(array) to make the array 2-dimensional by adding dummy trailing axes
-        # for further broadcasting to work tracewise
-        min_value, max_value = np.atleast_2d(min_value), np.atleast_2d(max_value)
+        min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
         self.data = normalization.scale_minmax(self.data, min_value, max_value, clip, np.float32(eps))
         return self
 
