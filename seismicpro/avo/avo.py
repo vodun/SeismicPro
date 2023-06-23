@@ -16,18 +16,19 @@ class AmplitudeOffsetDistribution:
         self.name = name
 
         if isinstance(bin_size, (int, np.integer)):
-            # add +1 to avoid the case of falling outside the `bin_bounds` if headers offset equal to bin_bounds[-1]
-            bin_bounds = np.arange(0, self.headers["offset"].max()+bin_size+1, bin_size)
+            bin_bounds = np.arange(0, self.headers["offset"].max()+bin_size, bin_size)
         else:
             bin_bounds = np.cumsum([0, *bin_size])
 
-        self.headers["bin"] = bin_bounds[np.searchsorted(bin_bounds, self.headers["offset"], side='right')]
+        # Subtract 1 to start at offset 0 instead of `bin_size`.
+        bin_bounds_ixs = np.searchsorted(bin_bounds, self.headers["offset"], side='right') - 1
+        self.headers["bin"] = bin_bounds[np.clip(bin_bounds_ixs, 0, len(bin_bounds))]
         self.stats_df = self.headers.groupby([*to_list(indexed_by), "bin"], as_index=False)[avo_column].mean()
         self.bins_df = self.stats_df.groupby("bin", as_index=False)[avo_column].mean()
 
         # Metrics
         self.metrics = {}
-        self.qc(names=["std", "corr"], pol_degree=pol_degree)
+        self.qc(pol_degree=pol_degree)
 
     @classmethod
     def from_survey(cls, survey, avo_column, bin_size, indexed_by=None, name=None, pol_degree=3):
@@ -36,24 +37,14 @@ class AmplitudeOffsetDistribution:
         return cls(headers=survey.headers, avo_column=avo_column, bin_size=bin_size, indexed_by=indexed_by, name=name,
                    pol_degree=pol_degree)
 
-    def qc(self, names=None, **kwargs):
-        metrics_dict = {
-            "std": self._calculate_std,
-            "corr": self._calculate_corr
-        }
-        names = names if names is not None else ["std", "corr"]
-        for name in to_list(names):
-            metric_func = metrics_dict.get(name)
-            if metric_func is None:
-                raise ValueError("")
-            self.metrics[name] = metric_func(**kwargs)
+    def qc(self, pol_degree=3):
+        self.metrics["std"] = self._calculate_std()
+        self.metrics["corr"] = self._calculate_corr(pol_degree=pol_degree)
 
-    def _calculate_std(self, **kwargs):
-        _ = kwargs
+    def _calculate_std(self):
         return self.stats_df.groupby("bin")[self.avo_column].apply(np.nanstd).mean()
 
-    def _calculate_corr(self, pol_degree=3, **kwargs):
-        _ = kwargs
+    def _calculate_corr(self, pol_degree):
         mask = ~self.bins_df[self.avo_column].isna()
         not_nan_bins = self.bins_df[mask]
         poly = np.polyfit(not_nan_bins["bin"], not_nan_bins[self.avo_column], deg=pol_degree)
