@@ -11,6 +11,7 @@ import scipy
 import segyio
 import numpy as np
 from scipy.signal import firwin
+from pandas.errors import SettingWithCopyWarning
 from matplotlib.path import Path
 from matplotlib.patches import Polygon, PathPatch
 from matplotlib.colors import ListedColormap
@@ -316,7 +317,7 @@ class Gather(TraceContainer, SamplesContainer):
 
             # Avoid warning related to the workaround
             with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
+                warnings.simplefilter("ignore", category=SettingWithCopyWarning)
                 # FIXME: Workaround for a pandas bug https://github.com/pandas-dev/pandas/issues/48998
                 # iloc may call unnecessary copy of the whole column before setitem
                 headers[column].array[pos] = column_data
@@ -1318,8 +1319,7 @@ class Gather(TraceContainer, SamplesContainer):
                 raise ValueError(f"`window` must have exact two elements, not {len(window)}")
             limits = self.times_to_indices(np.array(window), round=True).astype(np.int32)
             start_ixs = np.full(self.n_traces, fill_value=limits[0], dtype=np.int32)
-            # Include the next index to mimic the behavior of conventional software
-            end_ixs = np.full(self.n_traces, fill_value=limits[1] + 1, dtype=np.int32)
+            end_ixs = np.full(self.n_traces, fill_value=limits[1], dtype=np.int32)
 
         elif horizon_header is not None:
             centers = self[horizon_header]
@@ -1334,8 +1334,7 @@ class Gather(TraceContainer, SamplesContainer):
             start_times = np.clip(centers - horizon_window_size[0], 0, self.samples[-1])
             start_ixs = self.times_to_indices(start_times, round=True).astype(np.int32)
             end_times = np.clip(centers + horizon_window_size[1], 0, self.samples[-1])
-             # Include the next index to mimic the behavior of conventional software
-            end_ixs = self.times_to_indices(end_times, round=True).astype(np.int32) + 1
+            end_ixs = self.times_to_indices(end_times, round=True).astype(np.int32)
 
         func_dict = {
             "rms": stats.numba_rms,
@@ -1347,8 +1346,9 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError(f"`mode` should be either `abs` or `rms`, not {mode}")
         data = np.where(self.data != 0, self.data, np.nan)
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            self[avo_col] = method(data, start_ixs, end_ixs)
+            warnings.simplefilter("ignore", category=SettingWithCopyWarning)
+            # Include the next index of the right border of the window to mimic the behavior of conventional software
+            self[avo_col] = method(data, start_ixs, end_ixs + 1)
         return self
 
     #------------------------------------------------------------------------#
