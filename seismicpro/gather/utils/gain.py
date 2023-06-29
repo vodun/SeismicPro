@@ -38,6 +38,7 @@ def apply_agc(data, window_size=125, mode='rms'):
     start, end = win_left, trace_len - win_right
 
     data_res = np.empty_like(data)
+    coefs = np.empty_like(data)
     for i in prange(n_traces):  # pylint: disable=not-an-iterable
         # Calculate AGC coef for the first window
         win_sum = np.float64(0)
@@ -51,6 +52,7 @@ def apply_agc(data, window_size=125, mode='rms'):
             coef = np.sqrt(coef)
         # Extrapolate first AGC coef for trace indices before start
         data_res[i, : start + 1] = coef * data[i, : start + 1]
+        coefs[i, : start + 1] = coef
 
         # Move the window by one trace element and recalculate the AGC coef
         for j in range(start + 1, end):
@@ -66,10 +68,12 @@ def apply_agc(data, window_size=125, mode='rms'):
             if mode == 'rms':
                 coef = np.sqrt(coef)
             data_res[i, j] = coef * data[i, j]
+            coefs[i, j] = coef
         # Extrapolate last AGC coef for trace indices after end
         data_res[i, end:] = coef * data[i, end:]
+        coefs[i, end:] = coef
 
-    return data_res
+    return data_res, coefs
 
 @njit(nogil=True, parallel=True)
 def calculate_sdc_coefficient(v_pow, velocities, t_pow, times):

@@ -510,6 +510,46 @@ class SeismicBatch(Batch):
 
         return self
 
+    @action
+    @inbatch_parallel(init='init_component', target='threads')
+    def apply_agc(self, pos, src, dst=None, dst_coefs_gather=None, window_size=250, mode='rms'):
+        """Create new components for coefs gather, save coefs to dst_coefs_gather, apply agc."""
+        src_list, dst_list = align_src_dst(src, dst)
+
+        # Create components for coefs if they did't exist
+        if dst_coefs_gather is not None:
+            dst_coefs_gather = to_list(dst_coefs_gather)
+            for comp in dst_coefs_gather:
+                if comp not in self.components:
+                    self.add_components(comp, init=self.array_of_nones)
+
+        for i, (src, dst) in enumerate(zip(src_list, dst_list)):  # pylint: disable=redefined-argument-from-local
+            src_obj = getattr(self, src)[pos]
+            src_obj = src_obj.copy() if src != dst else src_obj
+            src_agc, agc_coefs = src_obj.apply_agc(window_size=window_size, mode=mode, return_coefs=True)
+            if dst_coefs_gather is not None:
+                setattr(self[pos], dst_coefs_gather[i], agc_coefs)
+            setattr(self[pos], dst, src_agc)
+        return self
+
+    @action
+    @inbatch_parallel(init='init_component', target='for')  # TODO: benchmark!
+    def undo_agc(self, pos, src, src_coefs_gather, dst=None):
+        """undo agc action"""
+        src_list, dst_list = align_src_dst(src, dst)
+        src_coefs_gather_list = to_list(src_coefs_gather)
+
+        if len(src_list) != len(src_coefs_gather_list):
+            raise ValueError("")
+        for src, coefs, dst in zip(src_list, src_coefs_gather_list, dst_list):  # pylint: disable=redefined-argument-from-local
+            src_obj = getattr(self, src)[pos]
+            src_coefs = getattr(self, coefs)[pos]
+
+            src_obj = src_obj.copy() if src != dst else src_obj
+            src_noagc = src_obj.undo_agc(coefs_gather=src_coefs)
+            setattr(self[pos], dst, src_noagc)
+        return self
+
     @action(no_eval="save_to")
     def calculate_metric(self, metric, *args, metric_name=None, coords_component=None, save_to=None, **kwargs):
         """Calculate a metric for each batch element and store the results into a metric map.

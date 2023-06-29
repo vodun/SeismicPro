@@ -1216,8 +1216,7 @@ class Gather(TraceContainer, SamplesContainer):
         self.samples = new_samples
         return self
 
-    @batch_method(target="threads")
-    def apply_agc(self, window_size=250, mode='rms'):
+    def apply_agc(self, window_size=250, mode='rms', return_coefs=False):
         """Calculate instantaneous or RMS amplitude AGC coefficients and apply them to gather data.
 
         Parameters
@@ -1248,7 +1247,18 @@ class Gather(TraceContainer, SamplesContainer):
         if (window_size_samples < 3) or (window_size_samples > self.n_samples):
             raise ValueError(f'window_size should be at least {2*self.sample_interval} milliseconds and '
                              f'{(self.n_samples-1)*self.sample_interval} at most, but {window_size} was given')
-        self.data = gain.apply_agc(data=self.data, window_size=window_size_samples, mode=mode)
+        data, coefs = gain.apply_agc(data=self.data, window_size=window_size_samples, mode=mode)
+        self.data = data
+        if return_coefs:
+            coefs_gather = self.copy(ignore='data')
+            coefs_gather.data = coefs.astype(np.float32)
+            return self, coefs_gather
+        return self
+
+    @batch_method(target='for')# TODO: benchmark
+    def undo_agc(self, coefs_gather):
+        """Undo agc in self gather by dividing by `coefs_gather`"""
+        self.data = self.data / coefs_gather.data
         return self
 
     @batch_method(target="threads")
