@@ -540,7 +540,7 @@ class SeismicBatch(Batch):
         Returns
         -------
         self : SeismicBatch
-            The batch with scaled data and optionally AGC coefficients.
+            The batch with scaled gathers and optionally AGC coefficients.
         """
         src_list, dst_list = align_src_dst(src, dst)
         dst_coefs_gather = to_list(dst_coefs_gather)
@@ -563,7 +563,7 @@ class SeismicBatch(Batch):
         Parameters
         ----------
         src : str or list of str
-            Batch components with gather instances with applied AGC.
+            Batch components with scaled gather instances.
         src_coefs_gather : str or list of str
             Batch components with gather instances with AGC coefficients in the `data` attribute.
         dst : str or list of str, optional
@@ -572,7 +572,7 @@ class SeismicBatch(Batch):
         Returns
         -------
         self : SeismicBatch
-            The batch with unscaled data.
+            The batch with unscaled gathers.
 
         Raises
         ------
@@ -584,6 +584,7 @@ class SeismicBatch(Batch):
 
         if len(src_list) != len(src_coefs_gather_list):
             raise ValueError("The length of `src_coefs_gather` must match the length of `src`")
+
         # pylint: disable-next=redefined-argument-from-local
         for src, coefs, dst in zip(src_list, src_coefs_gather_list, dst_list):
             src_obj = getattr(self, src)[pos]

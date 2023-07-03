@@ -1266,6 +1266,7 @@ class Gather(TraceContainer, SamplesContainer):
         ----------
         coefs_gather : Gather
             Gather with AGC coefficients in `data` attribute.
+
         Returns
         -------
         self : Gather
@@ -1281,7 +1282,7 @@ class Gather(TraceContainer, SamplesContainer):
         Parameters
         ----------
         velocities: StackingVelocity or None, optional, defaults to None.
-            StackingVelocity that is used to obtain velocities at self.times, measureda in meters / second.
+            StackingVelocity that is used to obtain velocities at self.times, measured in meters / second.
             If None, default StackingVelocity object is used.
         v_pow : float, optional, defaults to 2
             Velocity power value.
