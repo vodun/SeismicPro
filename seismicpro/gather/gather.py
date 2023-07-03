@@ -1227,6 +1227,8 @@ class Gather(TraceContainer, SamplesContainer):
             Mode for AGC: if 'rms', root mean squared value of non-zero amplitudes in the given window
             is used as scaling coefficient (RMS amplitude AGC), if 'abs' - mean of absolute non-zero
             amplitudes (instantaneous AGC).
+        retrun_coefs : bool, optional, defaults to False
+            Whether to return `Gather` with `data` attribute filled with computed AGC coefficients.
 
         Raises
         ------
@@ -1238,6 +1240,8 @@ class Gather(TraceContainer, SamplesContainer):
         -------
         self : Gather
             Gather with AGC applied to its data.
+        coefs_gather : Gather, optional
+            Gather with AGC coefficients in `data` attribute.
         """
         # Cast window from ms to samples
         window_size_samples = int(window_size // self.sample_interval) + 1
@@ -1250,15 +1254,24 @@ class Gather(TraceContainer, SamplesContainer):
         data, coefs = gain.apply_agc(data=self.data, window_size=window_size_samples, mode=mode)
         self.data = data
         if return_coefs:
-            coefs_gather = self.copy(ignore='data')
+            coefs_gather = self.copy(ignore="data")
             coefs_gather.data = coefs.astype(np.float32)
             return self, coefs_gather
         return self
 
-    @batch_method(target='for')# TODO: benchmark
     def undo_agc(self, coefs_gather):
-        """Undo agc in self gather by dividing by `coefs_gather`"""
-        self.data = self.data / coefs_gather.data
+        """Undo previously applied AGC correction using precomputed AGC coefficients.
+
+        Parameters
+        ----------
+        coefs_gather : Gather
+            Gather with AGC coefficients in `data` attribute.
+        Returns
+        -------
+        self : Gather
+            Gather without AGC.
+        """
+        self.data = gain.undo_agc(data=self.data, coefs=coefs_gather.data)
         return self
 
     @batch_method(target="threads")
@@ -1268,7 +1281,7 @@ class Gather(TraceContainer, SamplesContainer):
         Parameters
         ----------
         velocities: StackingVelocity or None, optional, defaults to None.
-            StackingVelocity that is used to obtain velocities at self.times, measured in meters / second.
+            StackingVelocity that is used to obtain velocities at self.times, measureda in meters / second.
             If None, default StackingVelocity object is used.
         v_pow : float, optional, defaults to 2
             Velocity power value.

@@ -3,6 +3,7 @@
 import numpy as np
 from numba import njit, prange
 
+
 @njit(nogil=True)
 def process_amp(amp, mode):
     """Process trace amplitude to use in AGC coefficient calculation."""
@@ -11,6 +12,7 @@ def process_amp(amp, mode):
     non_zero = 1 if amp != 0 else 0
     amp = amp**2 if mode=='rms' else abs(amp)
     return amp, non_zero
+
 
 @njit(nogil=True, parallel=True)
 def apply_agc(data, window_size=125, mode='rms'):
@@ -30,6 +32,8 @@ def apply_agc(data, window_size=125, mode='rms'):
     -------
     data : 2d array
         Gather data with applied AGC.
+    coefs : 2d array
+        Instantaneous or RMS amplitude AGC coefficients that was applied to the gather data.
     """
     n_traces, trace_len = data.shape
     win_left, win_right = window_size // 2, window_size - window_size // 2
@@ -75,6 +79,29 @@ def apply_agc(data, window_size=125, mode='rms'):
 
     return data_res, coefs
 
+
+@njit(parallel=True, nogil=True)
+def undo_agc(data, coefs):
+    """Undo previously applied AGC correction using precomputed AGC coefficients.
+
+    Parameters
+    ----------
+    data : 2d np.ndarray
+        Gather data with applied AGC.
+    coefs : 2d np.ndarray
+        Array of AGC coefficients.
+
+    Returns
+    -------
+    data : 2d array
+        Gather data without AGC.
+    """
+    new_data = np.empty_like(data, dtype=np.float32)
+    for i in prange(data.shape[0]):  # pylint: disable=not-an-iterable
+        new_data[i] = data[i] / coefs[i]
+    return new_data
+
+
 @njit(nogil=True, parallel=True)
 def calculate_sdc_coefficient(v_pow, velocities, t_pow, times):
     """Calculate spherical divergence correction coefficients."""
@@ -114,6 +141,7 @@ def apply_sdc(data, v_pow, velocities, t_pow, times):
     for i in prange(len(data)):  # pylint: disable=not-an-iterable
         data[i] *= sdc_coefficient
     return data
+
 
 @njit(nogil=True, parallel=True)
 def undo_sdc(data, v_pow, velocities, t_pow, times):
