@@ -1228,7 +1228,7 @@ class Gather(TraceContainer, SamplesContainer):
             is used as scaling coefficient (RMS amplitude AGC), if 'abs' - mean of absolute non-zero
             amplitudes (instantaneous AGC).
         retrun_coefs : bool, optional, defaults to False
-            Whether to return `Gather` with `data` attribute filled with computed AGC coefficients.
+            Whether to return a `Gather` with AGC coefficients in `data` attribute.
 
         Raises
         ------
