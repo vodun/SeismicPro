@@ -31,8 +31,8 @@ def clip_inplace(data, data_min, data_max):
     return data.reshape(data_shape)
 
 @njit(nogil=True, parallel=True)
-def get_stats(data):
-    """ Calculate mean and standard deviation.
+def get_tracewise_mean_std(data):
+    """ Calculate mean and standard deviation tracewise.
 
     Parameters
     ----------
@@ -162,11 +162,10 @@ def scale_minmax(data, min_value, max_value, clip, eps):
     data : np.ndarray
         Scaled data with unchanged shape.
     """
-    max_value += eps
     # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
     # for further broadcasting to work tracewise
     data -= np.atleast_2d(np.asarray(min_value)).T
-    data /= np.atleast_2d(np.asarray(max_value - min_value)).T
+    data /= np.atleast_2d(np.asarray(max_value - min_value + eps)).T
     if clip:
         data = clip_inplace(data, np.float32(0), np.float32(1))
     return data

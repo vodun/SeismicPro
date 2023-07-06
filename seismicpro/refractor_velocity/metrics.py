@@ -6,7 +6,7 @@ from functools import partial, lru_cache
 import numpy as np
 from numba import njit
 
-from ..gather.utils.normalization import scale_maxabs, get_tracewise_quantile, get_stats, scale_standard
+from ..gather.utils.normalization import scale_maxabs, get_tracewise_quantile, get_tracewise_mean_std, scale_standard
 from ..gather.utils.correction import get_hodograph
 from ..metrics import Metric
 from ..utils import get_first_defined, set_ticks, GEOGRAPHIC_COORDS, get_coords_cols
@@ -95,7 +95,7 @@ class RefractorVelocityMetric(Metric):
         res = np.empty((data.shape[0], n_samples), dtype=data.dtype)
         for i in range(n_samples):
             dt = (-n_samples / 2 + i) * sample_interval
-            res[:, i] = get_hodograph(data, offsets, sample_interval, delay, times + dt, fill_value=np.nan)
+            res[:, i] = get_hodograph(data, offsets, sample_interval, delay, times + dt, fill_value=0)
         return res
 
     def plot_gather(self, coords, ax, index, sort_by=None, threshold=None, mask=True, top_header=True, **kwargs):
@@ -232,7 +232,7 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def _calc(gather_data, offsets, picking_times, sample_interval, delay):
+    def _calc(gather_data, offsets, sample_interval, delay, picking_times):
         """Calculate signal amplitudes at first break times."""
         min_value, max_value = get_tracewise_quantile(gather_data, np.array([0, 1]))
         min_value, max_value = np.atleast_2d(min_value), np.atleast_2d(max_value)
@@ -254,8 +254,8 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
             Signal amplitudes for each trace in the gather.
         """
         _ = refractor_velocity
-        return self._calc(gather.data, gather["offset"], gather[self.first_breaks_header],
-                          gather.sample_interval, gather.delay)
+        return self._calc(gather.data, gather["offset"], gather.sample_interval,
+                          gather.delay, gather[self.first_breaks_header])
 
     def plot_gather(self, *args, **kwargs):
         """Plot the gather with amplitude values on top of the gather plot."""
@@ -314,8 +314,8 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         """
         _ = refractor_velocity
         # Normalize gather tracewise to intensify phase shifts
-        mean, std = get_stats(gather.data)
-        data = scale_standard(gather.data, mean, std, 1e-10)
+        mean, std = get_tracewise_mean_std(gather.data)
+        data = scale_standard(gather.data, mean, std, np.float32(1e-10))
         n_samples = ceil(self.window_size / gather.sample_interval) | 1
         windows = self._make_windows(gather[self.first_breaks_header], data, gather.offsets,
                                      n_samples, gather.sample_interval, gather.delay)
@@ -329,7 +329,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         filt_samples = np.arange(half_n_samples) + 1
         half_filt = 2 * np.sin(np.pi * filt_samples / 2)**2 / (np.pi * filt_samples)
         filt = np.concatenate((-half_filt[::-1], np.asarray([0.]), half_filt)) * np.hamming(2 * half_n_samples + 1)
-        return np.ascontiguousarray(filt[::-1])
+        return np.ascontiguousarray(filt[::-1], dtype=np.float32)
 
     @staticmethod
     @njit(nogil=True)

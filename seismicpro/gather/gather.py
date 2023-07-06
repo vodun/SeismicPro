@@ -496,7 +496,7 @@ class Gather(TraceContainer, SamplesContainer):
             mean = np.nanmean(self.data, keepdims=True)
             std = np.nanstd(self.data, keepdims=True)
         else:
-            mean, std = normalization.get_stats(self.data)
+            mean, std = normalization.get_tracewise_mean_std(self.data)
         self.data = normalization.scale_standard(self.data, mean, std, np.float32(eps))
         return self
 
