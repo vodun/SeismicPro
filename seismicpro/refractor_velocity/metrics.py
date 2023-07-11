@@ -288,13 +288,14 @@ class FirstBreaksPhases(RefractorVelocityMetric):
     vmax = np.pi / 2
     is_lower_better = True
 
-    def __init__(self, target="max", window_size=40, first_breaks_header=None, correct_uphole=None, name=None):
+    def __init__(self, target="max", window_size=40, scale=False, first_breaks_header=None, correct_uphole=None, name=None):
         if isinstance(target, str):
             if target not in {"max", "min", "transition"}:
                 raise KeyError("`target` should be one of {'max', 'min', 'transition'} or float.")
             target = {"max": 0, "min": np.pi, "transition": np.pi / 2}[target]
         self.target = target
         self.window_size = window_size
+        self.scale = scale
         super().__init__(first_breaks_header, correct_uphole, name)
 
     def calc(self, gather, refractor_velocity=None):
@@ -313,9 +314,8 @@ class FirstBreaksPhases(RefractorVelocityMetric):
             Signal phase value at first break time for each trace in the gather.
         """
         _ = refractor_velocity
-        # Normalize gather tracewise to intensify phase shifts
-        mean, std = get_tracewise_mean_std(gather.data)
-        data = scale_standard(gather.data, mean, std, np.float32(1e-10))
+        # Shift traces to zero mean for correct Hilbert transform
+        data = gather.data - gather.data.mean(axis=1).reshape(-1, 1)
         n_samples = ceil(self.window_size / gather.sample_interval) | 1
         windows = self._make_windows(gather[self.first_breaks_header], data, gather.offsets,
                                      n_samples, gather.sample_interval, gather.delay)
@@ -447,36 +447,32 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
             if mask:
                 mask_threshold = get_first_defined(threshold, self.vmin, metric_values.mean())
                 plotting_kwargs["masks"] = {"masks": metric_values * -1, "threshold": mask_threshold * -1}
-        traces_windows = self._make_windows(gather[self.first_breaks_header], gather.data, gather["offset"],
-                                            self.window_size, gather.sample_interval, gather.delay)
-        gather.data = traces_windows
-        gather.samples = gather.create_samples(traces_windows.shape[1], gather.sample_interval, gather.delay)
         plotting_kwargs.update(kwargs)
-        gather.plot(ax=ax, **plotting_kwargs)
-        num_y_ticks = min(self.window_size // int(gather.sample_interval), 9)
-        set_ticks(ax, axis="y", label="Time from first break, ms", num=num_y_ticks,
-                  major_labels=np.linspace(-self.window_size // 2, self.window_size // 2,
-                                            self.window_size, dtype=np.int32))
+        n_samples = ceil(self.window_size / gather.sample_interval) | 1
+        traces_windows = self._make_windows(gather[self.first_breaks_header], gather.data, gather["offset"],
+                                            n_samples, gather.sample_interval, gather.delay)
+        from ..gather import Gather
+        windows_gather = Gather(gather.headers, traces_windows, gather.sample_interval,
+                                gather.survey, delay=0)
+        windows_gather.plot(ax=ax, **plotting_kwargs)
+        set_ticks(ax, axis="y", label="Window time, ms")
 
     def plot_mean_hodograph(self, coords, ax, index, **kwargs):
         """Plot mean trace in the scaled gather around the first break with length of the given window size."""
         _ = coords
         gather = self.survey.get_gather(index)
+        n_samples = ceil(self.window_size / gather.sample_interval) | 1
         traces_windows = self._make_windows(gather[self.first_breaks_header], gather.data, gather["offset"],
-                                            self.window_size, gather.sample_interval, gather.delay)
+                                            n_samples, gather.sample_interval, gather.delay)
         mean_hodograph = np.nanmean(traces_windows, axis=0)
         mean_hodograph_scaled = ((mean_hodograph - mean_hodograph.mean()) / mean_hodograph.std()).reshape(1, -1)
-
-        gather.data = mean_hodograph_scaled
-        gather.samples = gather.create_samples(mean_hodograph_scaled.shape[1], gather.sample_interval, gather.delay)
-        gather.plot(mode="wiggle", ax=ax, **kwargs)
         fb_time_mean = np.mean(gather[self.first_breaks_header], dtype=np.int32)
+        from ..gather import Gather
+        mean_hodograph_gather = Gather({'MeanHodohraph': [0]}, mean_hodograph_scaled,
+                                       gather.sample_interval, gather.survey,
+                                       delay=fb_time_mean - self.window_size // 2)
+        mean_hodograph_gather.plot(mode="wiggle", ax=ax, **kwargs)
         set_ticks(ax, axis="x", label="Amplitude", num=3)
-        num_y_ticks = min(self.window_size // int(gather.sample_interval) + 1, 9)
-        set_ticks(ax, axis="y", label="Time, ms", num=num_y_ticks,
-                  major_labels=np.linspace((fb_time_mean - self.window_size // 2),
-                                           (fb_time_mean + self.window_size // 2),
-                                            self.window_size, dtype=np.int32))
 
 class DivergencePoint(RefractorVelocityMetric):
     """The divergence point metric for first breaks.
