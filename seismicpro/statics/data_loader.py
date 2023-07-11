@@ -54,6 +54,8 @@ class BaseTensorDataIterator:
             batch = tuple(tensor[batch_ix] for tensor in self.loader.tensors)
             if self.loader.device is not None:
                 batch = tuple(tensor.to(self.loader.device, non_blocking=True) for tensor in batch)
+            if len(self.loader.tensors) == 1:
+                batch = batch[0]
             self.batch_queue.put(batch, block=True)
         self.batch_queue.put(None, block=True)
 
