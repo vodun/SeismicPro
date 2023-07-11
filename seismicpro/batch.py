@@ -445,7 +445,7 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    @inbatch_parallel(init='init_component', target='threads')
+    @inbatch_parallel(init="init_component", target="threads")
     def crop(self, pos, src, origins, crop_shape, dst=None, joint=True, n_crops=1, stride=None, **kwargs):
         """Crop batch components.
 
@@ -518,7 +518,7 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    @inbatch_parallel(init='init_coef_component', target='threads')
+    @inbatch_parallel(init="init_coef_component", target="threads")
     def apply_agc(self, pos, src, dst=None, dst_coefs_gather=None, window_size=250, mode='rms'):
         """Calculate instantaneous or RMS amplitude AGC coefficients and apply them to gather data.
 
@@ -556,7 +556,7 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    @inbatch_parallel(init='init_component', target='for')  # TODO: benchmark!
+    @inbatch_parallel(init="init_component", target="threads")
     def undo_agc(self, pos, src, src_coefs_gather, dst=None):
         """Undo previously applied AGC correction using precomputed AGC coefficients.
 

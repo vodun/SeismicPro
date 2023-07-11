@@ -1251,7 +1251,9 @@ class Gather(TraceContainer, SamplesContainer):
         if (window_size_samples < 3) or (window_size_samples > self.n_samples):
             raise ValueError(f'window_size should be at least {2*self.sample_interval} milliseconds and '
                              f'{(self.n_samples-1)*self.sample_interval} at most, but {window_size} was given')
-        data, coefs = gain.apply_agc(data=self.data, window_size=window_size_samples, mode=mode)
+        # Avoid using str in funciton decorated with njit for performance reasons
+        use_rms_mode = mode == 'rms'
+        data, coefs = gain.apply_agc(data=self.data, window_size=window_size_samples, use_rms_mode=use_rms_mode)
         self.data = data
         if return_coefs:
             coefs_gather = self.copy(ignore="data")
