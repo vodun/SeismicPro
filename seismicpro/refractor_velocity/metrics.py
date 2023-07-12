@@ -477,17 +477,13 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
 class DivergencePoint(RefractorVelocityMetric):
     """The divergence point metric for first breaks.
     Find an offset after that first breaks are most likely to diverge from expected time.
-    Such an offset is defined as one with the maximum increase of outliers in between bins of `step` meters.
+    Such an offset is defined as one after that the cumulative mean of absolute deviations from expected time
+    exceeds the given tolerance.
 
     Parameters
     ----------
-    threshold_times: float, optional, defaults to 50
-        Threshold to define the first breaks outliers with, see :class:`FirstBreaksOutliers`. Measured in milliseconds.
-    step : int, optional, defaults to 100
-        Size of the offset window to count outliers in. Measured in meters.
-    tol : float, optional, defaults to 1e-2
-        Tolerance parameter. If the overall fraction of outliers in gather is less than `tol`,
-        the metric is set to be the maximum offset.
+    tol : float, optional, defaults to 10
+        Tolerable mean absolute deviation from expected time. Measured in milliseconds.
     first_breaks_header : str, optional, defaults to None
         Column name from `survey.headers` where times of first break are stored.
         If not provided, must be set before the metric call via `set_defaults`.
@@ -501,9 +497,8 @@ class DivergencePoint(RefractorVelocityMetric):
 
     is_lower_better = False
 
-    def __init__(self, step=100, tol=0.1, first_breaks_header=None, correct_uphole=None, name=None):
+    def __init__(self, tol=10, first_breaks_header=None, correct_uphole=None, name=None):
         super().__init__(first_breaks_header, correct_uphole, name)
-        self.step = step
         self.tol = tol
 
     def bind_context(self, *args, **kwargs):
@@ -514,23 +509,14 @@ class DivergencePoint(RefractorVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def _calc(offsets, deviations, step):
+    def _calc(offsets, deviations, tol):
         """Calculate divergence offset for the gather."""
         sorted_offsets_idx = np.argsort(offsets)
         sorted_offsets = offsets[sorted_offsets_idx]
         sorted_deviations = deviations[sorted_offsets_idx]
-
-        split_idxs = np.unique(np.searchsorted(sorted_offsets, np.arange(offsets.min() + step,
-                                               offsets.max() - step, step), side='right'))
-        dev_splits = np.split(sorted_deviations, split_idxs)
-        dev_splits = [split for split in dev_splits if len(split) > 0]
-        n_splits = len(dev_splits)
-
-        dev_means = np.array([dev_window.mean() for dev_window in dev_splits])
-        dev_deltas = np.empty(n_splits - 1, dtype=dev_means.dtype)
-        for i in range(n_splits - 1):
-            dev_deltas[i] = dev_means[i + 1] - dev_means[i]
-        div_idx = split_idxs[np.argmax(dev_deltas)] if n_splits > 1 else 0
+        cum_means = np.cumsum(sorted_deviations) / np.arange(1, len(sorted_deviations) + 1)
+        less_tol = np.nonzero(cum_means <= tol)[0]
+        div_idx = less_tol[-1] if len(less_tol) > 0 else -1
         div_offset = sorted_offsets[div_idx]
         return div_offset
 
@@ -555,10 +541,7 @@ class DivergencePoint(RefractorVelocityMetric):
         offsets = gather["offset"]
         rv_times = refractor_velocity(offsets)
         deviations = np.abs(rv_times - times)
-        if np.mean(deviations) < self.tol or self.step >= offsets.max():
-            div_offset = offsets.max()
-        else:
-            div_offset = self._calc(offsets, deviations, self.step)
+        div_offset = self._calc(offsets, deviations, self.tol)
         metric = np.empty_like(offsets)
         metric.fill(div_offset)
         return metric
@@ -588,4 +571,4 @@ class DivergencePoint(RefractorVelocityMetric):
         super().plot_refractor_velocity(coords, ax, index, title=title, **kwargs)
 
 REFRACTOR_VELOCITY_QC_METRICS = [FirstBreaksOutliers, FirstBreaksPhases, FirstBreaksCorrelations,
-                                 FirstBreaksAmplitudes]
+                                 FirstBreaksAmplitudes, DivergencePoint]
