@@ -155,7 +155,7 @@ class Benchmark:
 
         return run_time, cpu_monitor.data
 
-    def plot(self, figsize=(15, 7), cpu_util=False):
+    def plot(self, figsize=(12, 6), cpu_util=False):
         """Plot time and, optionally, CPU utilization versus `batch_size` for each `target`.
 
         The graph represents the average value and the standard deviation of the elapsed time or CPU
@@ -163,21 +163,22 @@ class Benchmark:
 
         Parameters
         ----------
-        figsize : tuple, optional, defaults to (15, 7)
+        figsize : tuple, optional, defaults to (12, 6)
             Output plot size.
         cpu_util : bool, defaults to False
             If True, the CPU utilization is plotted next to the elapsed time plot.
         """
-        results = self.results.drop(columns='CPUMonitor') if not cpu_util else self.results
-        batch_sizes = np.unique(results.reset_index()['batch_size'])
+        results = self.results.drop(columns="CPUMonitor") if not cpu_util else self.results
+        batch_sizes = results.reset_index()["batch_size"].drop_duplicates().to_numpy().astype(np.int32)
         for col_name, col_series in results.items():
-            sub_df = col_series.explode().reset_index()
+            sub_df = col_series.explode().reset_index().astype({"batch_size": np.int32})
 
             plt.figure(figsize=figsize)
-            sns.lineplot(data=sub_df, x='batch_size', y=col_name, hue='target', ci='sd', marker='o')
+            sns.lineplot(data=sub_df, x="batch_size", y=col_name, hue="target", errorbar='sd', marker='o')
 
             plt.title(f"{col_name} for {self.method_name} method")
             plt.xticks(ticks=batch_sizes, labels=batch_sizes)
-            plt.xlabel('Batch size')
-            plt.ylabel('Time (s)' if col_name == 'Time' else 'CPU (%)')
+            plt.ylim(0)
+            plt.xlabel("Batch size")
+            plt.ylabel("Time (s)" if col_name == "Time" else "CPU (%)")
         plt.show()
