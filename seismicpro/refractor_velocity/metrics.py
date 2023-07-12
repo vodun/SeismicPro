@@ -6,7 +6,7 @@ from functools import partial, lru_cache
 import numpy as np
 from numba import njit
 
-from ..gather.utils.normalization import scale_maxabs, get_tracewise_quantile, get_tracewise_mean_std, scale_standard
+from ..gather.utils.normalization import scale_maxabs, get_tracewise_quantile
 from ..gather.utils.correction import get_hodograph
 from ..metrics import Metric
 from ..utils import get_first_defined, set_ticks, GEOGRAPHIC_COORDS, get_coords_cols
@@ -288,14 +288,13 @@ class FirstBreaksPhases(RefractorVelocityMetric):
     vmax = np.pi / 2
     is_lower_better = True
 
-    def __init__(self, target="max", window_size=40, scale=False, first_breaks_header=None, correct_uphole=None, name=None):
+    def __init__(self, target="max", window_size=40, first_breaks_header=None, correct_uphole=None, name=None):
         if isinstance(target, str):
             if target not in {"max", "min", "transition"}:
                 raise KeyError("`target` should be one of {'max', 'min', 'transition'} or float.")
             target = {"max": 0, "min": np.pi, "transition": np.pi / 2}[target]
         self.target = target
         self.window_size = window_size
-        self.scale = scale
         super().__init__(first_breaks_header, correct_uphole, name)
 
     def calc(self, gather, refractor_velocity=None):
@@ -451,7 +450,7 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         n_samples = ceil(self.window_size / gather.sample_interval) | 1
         traces_windows = self._make_windows(gather[self.first_breaks_header], gather.data, gather["offset"],
                                             n_samples, gather.sample_interval, gather.delay)
-        from ..gather import Gather
+        from ..gather import Gather # pylint: disable=import-outside-toplevel
         windows_gather = Gather(gather.headers, traces_windows, gather.sample_interval,
                                 gather.survey, delay=0)
         windows_gather.plot(ax=ax, **plotting_kwargs)
@@ -467,7 +466,7 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         mean_hodograph = np.nanmean(traces_windows, axis=0)
         mean_hodograph_scaled = ((mean_hodograph - mean_hodograph.mean()) / mean_hodograph.std()).reshape(1, -1)
         fb_time_mean = np.mean(gather[self.first_breaks_header], dtype=np.int32)
-        from ..gather import Gather
+        from ..gather import Gather # pylint: disable=import-outside-toplevel
         mean_hodograph_gather = Gather({'MeanHodohraph': [0]}, mean_hodograph_scaled,
                                        gather.sample_interval, gather.survey,
                                        delay=fb_time_mean - self.window_size // 2)
