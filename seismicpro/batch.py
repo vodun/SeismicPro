@@ -552,9 +552,10 @@ class SeismicBatch(Batch):
             return_coefs = dst_coef is not None
             results = src_obj.apply_agc(window_size=window_size, mode=mode, return_coefs=return_coefs)
             if return_coefs:
-                results, agc_coefs = results
-                setattr(self[pos], dst_coef, agc_coefs)
-            setattr(self[pos], dst, results)
+                setattr(self[pos], dst, results[0])
+                setattr(self[pos], dst_coef, results[1])
+            else:
+                setattr(self[pos], dst, results)
         return self
 
     @action
