@@ -33,7 +33,7 @@ def apply_agc(data, window_size=125, use_rms_mode=True):
     data : 2d array
         Gather data with applied AGC.
     coefs : 2d array
-        Instantaneous or RMS amplitude AGC coefficients that was applied to the gather data.
+        Instantaneous or RMS amplitude AGC coefficients that were applied to the gather data.
     """
     n_traces, trace_len = data.shape
     win_left, win_right = window_size // 2, window_size - window_size // 2
@@ -96,7 +96,7 @@ def undo_agc(data, coefs):
     data : 2d array
         Gather data without AGC.
     """
-    new_data = np.empty_like(data, dtype=np.float32)
+    new_data = np.empty_like(data)
     for i in prange(data.shape[0]):  # pylint: disable=not-an-iterable
         new_data[i] = data[i] / coefs[i]
     return new_data

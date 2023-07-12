@@ -1241,7 +1241,7 @@ class Gather(TraceContainer, SamplesContainer):
         self : Gather
             Gather with AGC applied to its data.
         coefs_gather : Gather, optional
-            Gather with AGC coefficients in `data` attribute.
+            Gather with AGC coefficients in `data` attribute. Returned only if `return_coefs` was set to `True`.
         """
         # Cast window from ms to samples
         window_size_samples = int(window_size // self.sample_interval) + 1
@@ -1257,7 +1257,7 @@ class Gather(TraceContainer, SamplesContainer):
         self.data = data
         if return_coefs:
             coefs_gather = self.copy(ignore="data")
-            coefs_gather.data = coefs.astype(np.float32)
+            coefs_gather.data = coefs
             return self, coefs_gather
         return self
 
