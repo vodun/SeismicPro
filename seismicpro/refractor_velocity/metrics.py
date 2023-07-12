@@ -501,9 +501,8 @@ class DivergencePoint(RefractorVelocityMetric):
 
     is_lower_better = False
 
-    def __init__(self, threshold_times=50, step=100, tol=0.1, first_breaks_header=None, correct_uphole=None, name=None):
+    def __init__(self, step=100, tol=0.1, first_breaks_header=None, correct_uphole=None, name=None):
         super().__init__(first_breaks_header, correct_uphole, name)
-        self.threshold_times = threshold_times
         self.step = step
         self.tol = tol
 
@@ -515,24 +514,23 @@ class DivergencePoint(RefractorVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def _calc(offsets, outliers, step):
+    def _calc(offsets, deviations, step):
         """Calculate divergence offset for the gather."""
         sorted_offsets_idx = np.argsort(offsets)
         sorted_offsets = offsets[sorted_offsets_idx]
-        sorted_outliers = outliers[sorted_offsets_idx]
+        sorted_deviations = deviations[sorted_offsets_idx]
 
-        split_idxs = np.unique(np.searchsorted(sorted_offsets,
-                                               np.arange(max(step, offsets.min()),
-                                                         offsets.max() - step, step), side='right'))
-        outliers_splits = np.split(sorted_outliers, split_idxs)
-        outliers_splits = [split for split in outliers_splits if len(split) > 0]
-        n_splits = len(outliers_splits)
+        split_idxs = np.unique(np.searchsorted(sorted_offsets, np.arange(offsets.min() + step,
+                                               offsets.max() - step, step), side='right'))
+        dev_splits = np.split(sorted_deviations, split_idxs)
+        dev_splits = [split for split in dev_splits if len(split) > 0]
+        n_splits = len(dev_splits)
 
-        outliers_fractions = np.array([outliers_window.mean() for outliers_window in outliers_splits])
-        diffs = np.empty(n_splits - 1, dtype=outliers_fractions.dtype)
+        dev_means = np.array([dev_window.mean() for dev_window in dev_splits])
+        dev_deltas = np.empty(n_splits - 1, dtype=dev_means.dtype)
         for i in range(n_splits - 1):
-            diffs[i] = outliers_fractions[i + 1] - outliers_fractions[i]
-        div_idx = split_idxs[np.argmax(diffs)]
+            dev_deltas[i] = dev_means[i + 1] - dev_means[i]
+        div_idx = split_idxs[np.argmax(dev_deltas)] if n_splits > 1 else 0
         div_offset = sorted_offsets[div_idx]
         return div_offset
 
@@ -556,11 +554,11 @@ class DivergencePoint(RefractorVelocityMetric):
             times = times + gather["SourceUpholeTime"]
         offsets = gather["offset"]
         rv_times = refractor_velocity(offsets)
-        outliers = np.abs(rv_times - times) > self.threshold_times
-        if np.mean(outliers) < self.tol or self.step >= offsets.max():
-            div_offset =  offsets.max()
+        deviations = np.abs(rv_times - times)
+        if np.mean(deviations) < self.tol or self.step >= offsets.max():
+            div_offset = offsets.max()
         else:
-            div_offset = self._calc(offsets, outliers, self.step)
+            div_offset = self._calc(offsets, deviations, self.step)
         metric = np.empty_like(offsets)
         metric.fill(div_offset)
         return metric
@@ -572,7 +570,7 @@ class DivergencePoint(RefractorVelocityMetric):
 
     def get_views(self, sort_by="offset", **kwargs):
         """Return plotters of the metric views and add kwargs for `plot_gather` for interactive map plotting."""
-        return super().get_views(sort_by, **kwargs)
+        return super().get_views(sort_by=sort_by, **kwargs)
 
     def plot_gather(self, *args, **kwargs):
         """Plot the gather with highlighted traces after the divergence offset."""
@@ -587,7 +585,6 @@ class DivergencePoint(RefractorVelocityMetric):
         divergence_offset = self.calc(gather, rv)[0]
         ax.axvline(x=divergence_offset, color="k", linestyle="--", label='divergence offset')
         title = f"Divergence point: {divergence_offset} m"
-        kwargs["threshold_times"] = kwargs.pop("threshold_times", self.threshold_times)
         super().plot_refractor_velocity(coords, ax, index, title=title, **kwargs)
 
 REFRACTOR_VELOCITY_QC_METRICS = [FirstBreaksOutliers, FirstBreaksPhases, FirstBreaksCorrelations,
