@@ -1038,7 +1038,7 @@ class Gather(TraceContainer, SamplesContainer):
         self.headers = self.headers.iloc[order]
         return self
 
-    @batch_method(target="for")
+    @batch_method(target="threads")
     def get_central_gather(self):
         """Get a central CDP gather from a supergather.
 
@@ -1303,7 +1303,7 @@ class Gather(TraceContainer, SamplesContainer):
         self.data = gain.apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
         return self
 
-    @batch_method(target="for")
+    @batch_method(target="threads")
     def undo_sdc(self, velocity=None, v_pow=2, t_pow=1):
         """Calculate spherical divergence correction coefficients and use them to undo previously applied SDC.
 
