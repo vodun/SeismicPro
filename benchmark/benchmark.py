@@ -138,7 +138,8 @@ class Benchmark:
         ).run(n_iters=1, dump_results=False, parallel=False, workers=1, bar=bar, env_meta=env_meta)
 
         # Load benchmark's results.
-        self.results = research.results.to_df().set_index(['target', 'batch_size'])[['Time', 'CPUMonitor']]
+        results = research.results.to_df().astype({"batch_size": np.int32}).set_index(['target', 'batch_size'])
+        self.results = results[['Time', 'CPUMonitor']]
         return self
 
     def _run_single_pipeline(self, config, n_iters, shuffle):
@@ -169,9 +170,9 @@ class Benchmark:
             If True, the CPU utilization is plotted next to the elapsed time plot.
         """
         results = self.results.drop(columns="CPUMonitor") if not cpu_util else self.results
-        batch_sizes = results.reset_index()["batch_size"].drop_duplicates().to_numpy().astype(np.int32)
+        batch_sizes = np.unique(results.reset_index()["batch_size"])
         for col_name, col_series in results.items():
-            sub_df = col_series.explode().reset_index().astype({"batch_size": np.int32})
+            sub_df = col_series.explode().reset_index()
 
             plt.figure(figsize=figsize)
             sns.lineplot(data=sub_df, x="batch_size", y=col_name, hue="target", errorbar='sd', marker='o')
