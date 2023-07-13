@@ -1227,7 +1227,7 @@ class Gather(TraceContainer, SamplesContainer):
             Mode for AGC: if 'rms', root mean squared value of non-zero amplitudes in the given window
             is used as scaling coefficient (RMS amplitude AGC), if 'abs' - mean of absolute non-zero
             amplitudes (instantaneous AGC).
-        retrun_coefs : bool, optional, defaults to False
+        return_coefs : bool, optional, defaults to False
             Whether to return a `Gather` with AGC coefficients in `data` attribute.
 
         Raises
