@@ -452,9 +452,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     def get_polars_headers(self):
         """Return survey trace headers as a `polars.DataFrame`. The index is transformed into individual columns."""
-        headers = self.headers.copy(deep=False)
-        headers.reset_index(inplace=True)
-        return pl.from_pandas(headers, rechunk=False)
+        return pl.from_pandas(self.headers, rechunk=False, include_index=True)
 
     def set_source_id_cols(self, cols, validate=True):
         """Set new trace headers that uniquely identify a seismic source and optionally validate consistency of
@@ -462,20 +460,22 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         time and depth."""
         if set(to_list(cols)) - self.available_headers:
             raise ValueError("Required headers were not loaded")
+        polars_headers = self.get_polars_headers()
         if validate:
-            validate_source_headers(self.get_polars_headers(), cols)
+            validate_source_headers(polars_headers, cols)
         self.source_id_cols = cols
-        self.n_sources = len(self.get_polars_headers().select(cols).unique())
+        self.n_sources = len(polars_headers.select(cols).unique())
 
     def set_receiver_id_cols(self, cols, validate=True):
         """Set new trace headers that uniquely identify a receiver and optionally validate consistency of
         receiver-related trace headers by checking that each receiver has unique coordinates and surface elevation."""
         if set(to_list(cols)) - self.available_headers:
             raise ValueError("Required headers were not loaded")
+        polars_headers = self.get_polars_headers()
         if validate:
-            validate_receiver_headers(self.get_polars_headers(), cols)
+            validate_receiver_headers(polars_headers, cols)
         self.receiver_id_cols = cols
-        self.n_receivers = len(self.get_polars_headers().select(cols).unique())
+        self.n_receivers = len(polars_headers.select(cols).unique())
 
     def validate_headers(self, offset_atol=10, cdp_atol=10, elevation_atol=5, elevation_radius=50):
         """Check trace headers for consistency.

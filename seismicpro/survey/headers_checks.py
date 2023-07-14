@@ -38,7 +38,7 @@ def isclose_polars(expr1, expr2, rtol=1e-5, atol=1e-8):
 # pylint: disable-next=too-many-statements
 def _validate_trace_headers(headers, offset_atol=10, cdp_atol=10, elevation_atol=5, elevation_radius=50, width=80):
     """Validate trace headers for consistency and return either a string with found problems or `None` if all checks
-    have successfully passed. `headers` is expected to be a `polars.DataFrame`."""
+    have successfully passed or no checks can been performed. `headers` is expected to be a `polars.DataFrame`."""
     if headers.is_empty():
         return None
 
@@ -60,7 +60,7 @@ def _validate_trace_headers(headers, offset_atol=10, cdp_atol=10, elevation_atol
     expr_list = []
     if {"FieldRecord", "TraceNumber"} <= non_empty_columns:
         sorted_ids = pl.struct("FieldRecord", "TraceNumber").sort()
-        n_uniques = (sorted_ids != sorted_ids.shift(1)).sum()  # Much faster than n_uniques
+        n_uniques = (sorted_ids != sorted_ids.shift(1)).sum() + 1  # Much faster than direct n_unique call for structs
         expr_list.append((n_traces - n_uniques).alias("n_duplicated"))
 
     if "SourceUpholeTime" in non_empty_columns:
@@ -186,7 +186,8 @@ def _validate_trace_headers(headers, offset_atol=10, cdp_atol=10, elevation_atol
 
 def _validate_source_headers(headers, source_id_cols=None, width=80):
     """Validate source-related trace headers for consistency and return either a string with found problems or `None`
-    if all checks have successfully passed. `headers` is expected to be a `polars.DataFrame`."""
+    if all checks have successfully passed or no checks can been performed. `headers` is expected to be a
+    `polars.DataFrame`."""
     if headers.is_empty():
         return None
     if source_id_cols is None:
@@ -209,7 +210,6 @@ def _validate_source_headers(headers, source_id_cols=None, width=80):
     cols_to_check = (source_cols & loaded_columns) - set(source_id_cols)
     if not cols_to_check:
         return None
-    headers = headers.select(source_cols)
 
     n_uniques = headers.lazy().groupby(source_id_cols).agg(pl.col(cols_to_check).n_unique())
     n_duplicated = n_uniques.select([pl.count().alias("n_sources"), (pl.col(cols_to_check) > 1).sum()])
@@ -249,7 +249,8 @@ def _validate_source_headers(headers, source_id_cols=None, width=80):
 
 def _validate_receiver_headers(headers, receiver_id_cols=None, width=80):
     """Validate receiver-related trace headers for consistency and return either a string with found problems or `None`
-    if all checks have successfully passed. `headers` is expected to be a `polars.DataFrame`."""
+    if all checks have successfully passed or no checks can been performed. `headers` is expected to be a
+    `polars.DataFrame`."""
     if headers.is_empty():
         return None
     if receiver_id_cols is None:
@@ -272,7 +273,6 @@ def _validate_receiver_headers(headers, receiver_id_cols=None, width=80):
     cols_to_check = (receiver_cols & loaded_columns) - set(receiver_id_cols)
     if not cols_to_check:
         return None
-    headers = headers.select(receiver_cols)
 
     n_uniques = headers.lazy().groupby(receiver_id_cols).agg(pl.col(cols_to_check).n_unique())
     n_duplicated = n_uniques.select([pl.count().alias("n_receivers"), (pl.col(cols_to_check) > 1).sum()])
