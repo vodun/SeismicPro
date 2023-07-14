@@ -445,7 +445,7 @@ class Gather(TraceContainer, SamplesContainer):
         if not tracewise:
             quantiles = np.nanquantile(self.data, q=q)
         else:
-            quantiles = normalization.get_quantile(self.data, q=np.atleast_1d(q))
+            quantiles = normalization.get_tracewise_quantile(self.data, q=np.atleast_1d(q))
             # return the same type as q: either single float or array-like
             if q.ndim == 0:
                 quantiles = quantiles[0]
@@ -496,7 +496,7 @@ class Gather(TraceContainer, SamplesContainer):
             mean = np.nanmean(self.data, keepdims=True)
             std = np.nanstd(self.data, keepdims=True)
         else:
-            mean, std = normalization.get_gather_stats(self.data)
+            mean, std = normalization.get_tracewise_mean_std(self.data)
         self.data = normalization.scale_standard(self.data, mean, std, np.float32(eps))
         return self
 
@@ -545,15 +545,7 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If `use_global` is `True` but global statistics were not calculated.
         """
-        if use_global:
-            min_value, max_value = self.survey.get_quantile([q_min, q_max])
-        elif not tracewise:
-            min_value, max_value = self.get_quantile([q_min, q_max], tracewise=False)
-        else:
-            min_value, max_value = normalization.get_quantile(self.data,[q_min, q_max])
-        # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
-        # for further broadcasting to work tracewise
-        min_value, max_value = np.atleast_2d(min_value), np.atleast_2d(max_value)
+        min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
         self.data = normalization.scale_maxabs(self.data, min_value, max_value, clip, np.float32(eps))
         return self
 
@@ -598,15 +590,7 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If `use_global` is `True` but global statistics were not calculated.
         """
-        if use_global:
-            min_value, max_value = self.survey.get_quantile([q_min, q_max])
-        elif not tracewise:
-            min_value, max_value = self.get_quantile([q_min, q_max], tracewise=False)
-        else:
-            min_value, max_value = normalization.get_quantile(self.data, [q_min, q_max])
-        # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
-        # for further broadcasting to work tracewise
-        min_value, max_value = np.atleast_2d(min_value), np.atleast_2d(max_value)
+        min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
         self.data = normalization.scale_minmax(self.data, min_value, max_value, clip, np.float32(eps))
         return self
 

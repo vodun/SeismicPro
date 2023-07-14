@@ -16,7 +16,7 @@ from .interactive_plot import FieldPlot
 from .utils import get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities
 from ..field import SpatialField
 from ..metrics import initialize_metrics
-from ..utils import to_list, get_coords_cols, Coordinates, IDWInterpolator, ForPoolExecutor
+from ..utils import to_list, get_coords_cols, Coordinates, IDWInterpolator, ForPoolExecutor, GEOGRAPHIC_COORDS
 from ..const import HDR_FIRST_BREAK
 
 
@@ -638,17 +638,18 @@ class RefractorVelocityField(SpatialField):
     #pylint: disable-next=invalid-name
     def qc(self, metrics=None, survey=None, first_breaks_header=HDR_FIRST_BREAK, correct_uphole=None,
            n_workers=None, bar=True, chunk_size=250):
+
         """Perform quality control of the first breaks given the near-surface velocity model.
         By default, the following metrics are calculated:
         * The first break outliers metric. A first break time is considered to be an outlier if it differs from the
         expected arrival time defined by an offset-traveltime curve by more than a given threshold.
-        * Mean amplitude of the signal in the moment of first break,
-        * Mean absolute deviation of the signal phase from target value in the moment of first break,
-        * Mean Pearson correlation coefficient of trace with mean hodograph in window around the first break,
+        * Mean amplitude of the signal in the moment of first break.
+        * Mean absolute deviation of the signal phase from target value in the moment of first break.
+        * Mean Pearson correlation coefficient of trace with mean hodograph in window around the first break.
 
         Parameters
         ----------
-        metrics : instance or subclass of :class:`~metrics.RefractorVelocityMetric` of list of them, optional.
+        metrics : instance or subclass of :class:`~metrics.RefractorVelocityMetric` or list of them, optional
             Metrics to calculate. Defaults to those defined in `~metrics.REFRACTOR_VELOCITY_QC_METRICS`.
         survey : Survey, optional
             Survey to load traces from. Defaults to a survey the field is linked to.
@@ -682,7 +683,9 @@ class RefractorVelocityField(SpatialField):
         for metric in metrics_instances:
             metric.set_defaults(first_breaks_header=first_breaks_header, correct_uphole=correct_uphole)
 
-        coords_cols = to_list(get_coords_cols(survey.indexed_by))
+        coords_cols = get_coords_cols(survey.indexed_by)
+        is_geographic = coords_cols in GEOGRAPHIC_COORDS
+
         gather_change_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0]
         gather_coords = survey[coords_cols][gather_change_ix]
 
@@ -695,7 +698,7 @@ class RefractorVelocityField(SpatialField):
 
         def calc_metrics(gather_indices_chunk, coords_chunk):
             """Calculate metrics for a given chunk of gather indices."""
-            refractor_velocities = self(coords_chunk)
+            refractor_velocities = self(coords_chunk, is_geographic=is_geographic)
             results = []
             for idx, rv in zip(gather_indices_chunk, refractor_velocities):
                 gather = survey.get_gather(idx)

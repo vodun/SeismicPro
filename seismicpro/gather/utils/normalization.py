@@ -31,8 +31,8 @@ def clip_inplace(data, data_min, data_max):
     return data.reshape(data_shape)
 
 @njit(nogil=True, parallel=True)
-def get_gather_stats(data):
-    """ Calculate mean and standard deviation.
+def get_tracewise_mean_std(data):
+    """ Calculate mean and standard deviation tracewise.
 
     Parameters
     ----------
@@ -78,8 +78,8 @@ def scale_standard(data, mean, std, eps):
     return (data - mean) / (std + eps)
 
 @njit(nogil=True, parallel=True)
-def get_quantile(data, q):
-    """Compute the `q`-th quantile of the data.
+def get_tracewise_quantile(data, q):
+    """Compute the `q`-th quantile of the data tracewise.
 
     Parameters
     ----------
@@ -110,10 +110,10 @@ def scale_maxabs(data, min_value, max_value, clip, eps):
     ----------
     data : 2d np.ndarray
         Data to scale.
-    min_value : float, 1d or 2d array-like
+    min_value : float or 1d array-like
         Minimum value. Dummy trailing axes are added to the array to have at least 2 dimensions, the result must
         be broadcastable to `data.shape`.
-    max_value : float, 1d or 2d array-like
+    max_value : float or 1d array-like
         Maximum value. Dummy trailing axes are added to the array to have at least 2 dimensions, the result must
         be broadcastable to `data.shape`.
     clip : bool
@@ -146,10 +146,12 @@ def scale_minmax(data, min_value, max_value, clip, eps):
     ----------
     data : 2d np.ndarray
         Data to scale.
-    min_value : 2d array-like
-        Minimum value, must be broadcastable to `data.shape`.
-    max_value : 2d array-like
-        Maximum value, must be broadcastable to `data.shape`.
+    min_value : float or 1d array-like
+        Minimum value. Dummy trailing axes are added to the array to have at least 2 dimensions, the result must
+        be broadcastable to `data.shape`.
+    max_value : float or 1d array-like
+        Maximum value. Dummy trailing axes are added to the array to have at least 2 dimensions, the result must
+        be broadcastable to `data.shape`.
     clip : bool
         Whether to clip scaled data to the [0, 1] range.
     eps : float
@@ -160,9 +162,10 @@ def scale_minmax(data, min_value, max_value, clip, eps):
     data : np.ndarray
         Scaled data with unchanged shape.
     """
-    max_value += eps
-    data -= min_value
-    data /= max_value - min_value
+    # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
+    # for further broadcasting to work tracewise
+    data -= np.atleast_2d(np.asarray(min_value)).T
+    data /= np.atleast_2d(np.asarray(max_value - min_value + eps)).T
     if clip:
         data = clip_inplace(data, np.float32(0), np.float32(1))
     return data
