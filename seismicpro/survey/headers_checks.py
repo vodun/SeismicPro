@@ -60,7 +60,7 @@ def _validate_trace_headers(headers, offset_atol=10, cdp_atol=10, elevation_atol
     expr_list = []
     if {"FieldRecord", "TraceNumber"} <= non_empty_columns:
         sorted_ids = pl.struct("FieldRecord", "TraceNumber").sort()
-        n_uniques = (sorted_ids != sorted_ids.shift(1)).sum()  # Much faster than n_uniques
+        n_uniques = (sorted_ids != sorted_ids.shift(1)).sum() + 1  # Much faster than direct n_unique call for structs
         expr_list.append((n_traces - n_uniques).alias("n_duplicated"))
 
     if "SourceUpholeTime" in non_empty_columns:
