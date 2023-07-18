@@ -10,6 +10,7 @@ from .velocity_spectrum import VerticalVelocitySpectrum, ResidualVelocitySpectru
 from .muter import Muter, MuterField
 from .stacking_velocity import StackingVelocity, StackingVelocityField
 from .refractor_velocity import RefractorVelocity, RefractorVelocityField
+from .statics import SpatialGrid, LayeredModel
 from .metrics import Metric, PipelineMetric, MetricMap
 from .utils import aggregate_segys, make_prestack_segy
 

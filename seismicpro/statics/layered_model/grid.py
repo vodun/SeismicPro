@@ -9,7 +9,7 @@ from ...const import HDR_FIRST_BREAK
 from ...utils import to_list, IDWInterpolator
 
 
-class SurfaceGrid:
+class SpatialGrid:
     def __init__(self, coords, surface_elevations, survey=None, n_interpolation_neighbors=1):
         coords = self._process_coords(coords)
         surface_elevations = np.broadcast_to(surface_elevations, len(coords))
@@ -172,7 +172,7 @@ class SurfaceGrid:
         return self.surface_elevation_interpolator._get_reference_indices_neighbors(coords)
 
     def interpolate(self, values, coords):
-        coords = coords.coords if isinstance(coords, SurfaceGrid) else self._process_coords(coords)
+        coords = coords.coords if isinstance(coords, SpatialGrid) else self._process_coords(coords)
         return self.interpolator_class(self.coords, values)(coords)
 
     # Dataset generation

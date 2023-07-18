@@ -1,39 +1,92 @@
 import math
-from tqdm.auto import tqdm
+
+import torch
+import numpy as np
 from numba import njit, prange
+from tqdm.auto import tqdm
+
+from .dataloader import TensorDataLoader
+from ...utils import to_list
+from ...const import HDR_FIRST_BREAK
 
 
 class TravelTimeDataset:
     def __init__(self, survey, grid, first_breaks_header=HDR_FIRST_BREAK, uphole_correction_method="auto",
                  velocity_cell_size=250):
-        if uphole_correction_method not in {"auto", "time", "depth", None}:
-            raise ValueError
+        self.grid = grid
+        self.survey_list = to_list(survey)
 
-        survey_list = to_list(survey)
-        traveltime_data = [self._get_traveltime_data(survey, first_breaks_header, uphole_correction_method)
-                           for survey in survey_list]
-        source_coords_list, receiver_coords_list, traveltimes_list = zip(*traveltime_data)
-        source_coords = np.concatenate(source_coords_list)
-        receiver_coords = np.concatenate(receiver_coords_list)
-        traveltimes = np.concatenate(traveltimes_list)
-
-        source_indices, source_weights = grid.get_interpolation_params(source_coords[:, :2])
-        receiver_indices, receiver_weights = grid.get_interpolation_params(receiver_coords[:, :2])
-
-        coords, indices, weights = self.get_velocity_grid(source_coords, receiver_coords, velocity_cell_size)
-        coords_grid_indices, coords_grid_weights = grid.get_interpolation_params(coords)
-        grid_indices, grid_weights = self.get_grid_weights(coords_grid_indices, coords_grid_weights, indices, weights)
-
-        # Convert dataset arrays to torch tensors but don't move them to the device as they can be large
+        source_coords = np.concatenate([survey[["SourceX", "SourceY"]] for survey in self.survey_list])
+        source_indices, source_weights = self.grid.get_interpolation_params(source_coords)
         self.source_coords = torch.tensor(source_coords, dtype=torch.float32)
         self.source_indices = torch.tensor(source_indices, dtype=torch.int32)
         self.source_weights = torch.tensor(source_weights, dtype=torch.float32)
+
+        receiver_coords = np.concatenate([survey[["GroupX", "GroupY"]] for survey in self.survey_list])
+        receiver_indices, receiver_weights = self.grid.get_interpolation_params(receiver_coords)
+        receiver_elevations = np.concatenate([survey["ReceiverGroupElevation"] for survey in self.survey_list])
         self.receiver_coords = torch.tensor(receiver_coords, dtype=torch.float32)
+        self.receiver_elevations = torch.tensor(receiver_elevations, dtype=torch.float32)
         self.receiver_indices = torch.tensor(receiver_indices, dtype=torch.int32)
         self.receiver_weights = torch.tensor(receiver_weights, dtype=torch.float32)
+
+        # Process uphole correction method: set proper source elevation and target traveltime
+        self.first_breaks_header = first_breaks_header
+        self.uphole_correction_method_list = None
+        self.source_elevations = None
+        self.traveltime_corrections = None
+        self.target_traveltimes = None
+        self.prediction_traveltimes = None
+        self.set_uphole_correction_method(uphole_correction_method)
+
+        # Construct an interpolation grid for mean slowness estimation
+        coords, indices, weights = self.get_velocity_grid(source_coords, receiver_coords, velocity_cell_size)
+        coords_grid_indices, coords_grid_weights = self.grid.get_interpolation_params(coords)
+        grid_indices, grid_weights = self.get_grid_weights(coords_grid_indices, coords_grid_weights, indices, weights)
         self.grid_indices = torch.tensor(grid_indices, dtype=torch.int32)
         self.grid_weights = torch.tensor(grid_weights, dtype=torch.float32)
-        self.traveltimes = torch.tensor(traveltimes, dtype=torch.float32)
+
+    @property
+    def has_predictions(self):
+        return self.prediction_traveltimes is not None
+
+    @staticmethod
+    def _get_uphole_correction_method(survey, uphole_correction_method):
+        if uphole_correction_method not in {"auto", "time", "depth", None}:
+            raise ValueError
+        if uphole_correction_method != "auto":
+            return uphole_correction_method
+        if not survey.is_uphole:
+            return None
+        return "time" if "SourceUpholeTime" in survey.available_headers else "depth"
+
+    def _process_survey_uphole_correction_method(self, survey, uphole_correction_method):
+        source_elevations = survey["SourceSurfaceElevation"]
+        target_traveltimes = survey[self.first_breaks_header]
+        uphole_correction_method = self._get_uphole_correction_method(survey, uphole_correction_method)
+        if uphole_correction_method == "time":
+            traveltime_corrections = survey["SourceUpholeTime"]
+            target_traveltimes = target_traveltimes + traveltime_corrections
+        elif uphole_correction_method == "depth":
+            source_elevations = source_elevations - survey["SourceDepth"]
+            traveltime_corrections = np.zeros_like(target_traveltimes)
+        else:
+            traveltime_corrections = np.zeros_like(target_traveltimes)
+        return source_elevations, target_traveltimes, traveltime_corrections, uphole_correction_method
+
+    def set_uphole_correction_method(self, uphole_correction_method):
+        uphole_correction_method_list = to_list(uphole_correction_method)
+        if len(uphole_correction_method_list) == 1:
+            uphole_correction_method_list = uphole_correction_method_list * len(self.survey_list)
+        if len(uphole_correction_method_list) != len(self.survey_list):
+            raise ValueError
+
+        res = [self._process_survey_uphole_correction_method(survey, uphole_correction_method)
+               for survey, uphole_correction_method in zip(self.survey_list, uphole_correction_method_list)]
+        source_elevations, target_traveltimes, traveltime_corrections, self.uphole_correction_method_list = zip(*res)
+        self.source_elevations = torch.tensor(np.concatenate(source_elevations), dtype=torch.float32)
+        self.target_traveltimes = torch.tensor(np.concatenate(target_traveltimes), dtype=torch.float32)
+        self.traveltime_corrections = torch.tensor(np.concatenate(traveltime_corrections), dtype=torch.float32)
 
     @staticmethod
     @njit(nogil=True, parallel=True)
@@ -108,48 +161,27 @@ class TravelTimeDataset:
 
         return grid_indices, grid_weights
 
-    @staticmethod
-    def _get_uphole_correction_method(survey, uphole_correction_method):
-        if uphole_correction_method != "auto":
-            return uphole_correction_method
-        if not survey.is_uphole:
-            return None
-        return "time" if "SourceUpholeTime" in survey.available_headers else "depth"
+    # Loader creation
 
-    @classmethod
-    def _get_traveltime_data(cls, survey, first_breaks_header, uphole_correction_method):
-        source_coords = survey[["SourceX", "SourceY", "SourceSurfaceElevation"]]
-        receiver_coords = survey[["GroupX", "GroupY", "ReceiverGroupElevation"]]
-        traveltimes = survey[first_breaks_header]
-
-        uphole_correction_method = cls._get_uphole_correction_method(survey, uphole_correction_method)
-        if uphole_correction_method == "time":
-            traveltimes = traveltimes + survey["SourceUpholeTime"]
-        elif uphole_correction_method == "depth":
-            source_coords[:, -1] -= survey["SourceDepth"]
-        return source_coords, receiver_coords, traveltimes
-
-    # def _get_predict_traveltime_data(self, container, uphole_correction_method):
-    #     source_coords = container[["SourceX", "SourceY", "SourceSurfaceElevation"]]
-    #     receiver_coords = container[["GroupX", "GroupY", "ReceiverGroupElevation"]]
-    #     if uphole_correction_method == "depth":
-    #         source_coords[:, -1] -= container["SourceDepth"]
-    #     if uphole_correction_method == "time":
-    #         traveltime_correction = container["SourceUpholeTime"]
-    #     else:
-    #         traveltime_correction = np.zeros(container.n_traces, dtype=np.float32)
-    #     return source_coords, receiver_coords, traveltime_correction
-
-    @property
-    def train_tensors(self):
-        return (self.source_coords, self.source_indices, self.source_weights,
-                self.receiver_coords, self.receiver_indices, self.receiver_weights,
-                self.grid_indices, self.grid_weights, self.traveltimes)
-
-    def create_train_loader(self, batch_size=1, n_epochs=1, shuffle=True, drop_last=True, device=None, bar=True):
-        loader = TensorDataLoader(*self.train_tensors, batch_size=batch_size, n_epochs=n_epochs,
+    def create_train_loader(self, batch_size, n_epochs, shuffle=True, drop_last=True, device=None, bar=True):
+        train_tensors = [self.source_coords, self.source_elevations, self.source_indices, self.source_weights,
+                         self.receiver_coords, self.receiver_elevations, self.receiver_indices, self.receiver_weights,
+                         self.grid_indices, self.grid_weights, self.target_traveltimes]
+        loader = TensorDataLoader(*train_tensors, batch_size=batch_size, n_epochs=n_epochs,
                                   shuffle=shuffle, drop_last=drop_last, device=device)
         return tqdm(loader, desc="Iterations of model fitting", disable=not bar)
 
-#     def create_predict_loader(self, ...):
-#         pass
+    def create_predict_loader(self, batch_size, n_epochs=1, shuffle=False, drop_last=False, device=None, bar=True):
+        pred_tensors = [self.source_coords, self.source_elevations, self.source_indices, self.source_weights,
+                        self.receiver_coords, self.receiver_elevations, self.receiver_indices, self.receiver_weights,
+                        self.grid_indices, self.grid_weights, self.traveltime_corrections]
+        loader = TensorDataLoader(*pred_tensors, batch_size=batch_size, n_epochs=n_epochs,
+                                  shuffle=shuffle, drop_last=drop_last, device=device)
+        return tqdm(loader, desc="Iterations of model inference", disable=not bar)
+
+    # Evaluation of predictions
+
+    def evaluate(self):
+        if not self.has_predictions:
+            raise ValueError
+        return torch.abs(self.prediction_traveltimes - self.target_traveltimes).mean().item()
