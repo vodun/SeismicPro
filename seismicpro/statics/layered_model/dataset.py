@@ -84,8 +84,10 @@ class TravelTimeDataset:
         if len(uphole_correction_method_list) != len(self.survey_list):
             raise ValueError
 
-        res = zip(*[self._process_survey_uphole_correction_method(survey, uphole_correction_method)
-                    for survey, uphole_correction_method in zip(self.survey_list, uphole_correction_method_list)])
+        res = [self._process_survey_uphole_correction_method(survey, uphole_correction_method)
+               for survey, uphole_correction_method in zip(self.survey_list, uphole_correction_method_list)]
+        res = list(zip(*res))
+
         self.source_elevations = torch.tensor(np.concatenate(res[0]), dtype=torch.float32)
         self.true_traveltimes = torch.tensor(np.concatenate(res[1]), dtype=torch.float32)
         self.target_traveltimes = torch.tensor(np.concatenate(res[2]), dtype=torch.float32)
