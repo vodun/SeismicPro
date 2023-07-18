@@ -4,6 +4,7 @@ import numpy as np
 import polars as pl
 
 from .dataset import TravelTimeDataset
+from ...survey import Survey
 from ...metrics import MetricMap
 from ...const import HDR_FIRST_BREAK
 from ...utils import to_list, IDWInterpolator
@@ -11,7 +12,7 @@ from ...utils import to_list, IDWInterpolator
 
 class SpatialGrid:
     def __init__(self, coords, surface_elevations, survey=None, n_interpolation_neighbors=1):
-        coords = self._process_coords(coords)
+        coords, _ = self._process_coords(coords)
         surface_elevations = np.broadcast_to(surface_elevations, len(coords))
 
         self.coords = coords
@@ -20,6 +21,7 @@ class SpatialGrid:
         self.interpolator_class = partial(IDWInterpolator, neighbors=n_interpolation_neighbors)
         self.surface_elevation_interpolator = self.interpolator_class(coords, surface_elevations)
         self.survey_list = None if survey is None else to_list(survey)
+        self.is_single_survey = isinstance(survey, Survey)
 
     def __len__(self):
         return len(self.coords)
@@ -41,10 +43,12 @@ class SpatialGrid:
 
     @staticmethod
     def _process_coords(coords):
+        coords = np.array(coords)
+        is_1d = coords.ndim == 1
         coords = np.atleast_2d(coords)
-        if coords.ndim != 2 or coords.shape[1] != 2:
+        if coords.ndim > 2 or coords.shape[1] != 2:
             raise ValueError
-        return coords
+        return coords, is_1d
 
     # IO
 
@@ -172,8 +176,11 @@ class SpatialGrid:
         return self.surface_elevation_interpolator._get_reference_indices_neighbors(coords)
 
     def interpolate(self, values, coords):
-        coords = coords.coords if isinstance(coords, SpatialGrid) else self._process_coords(coords)
-        return self.interpolator_class(self.coords, values)(coords)
+        coords, is_1d = (coords.coords, False) if isinstance(coords, SpatialGrid) else self._process_coords(coords)
+        res = self.interpolator_class(self.coords, values)(coords)
+        if is_1d:
+            return res[0]
+        return res
 
     # Dataset generation
 

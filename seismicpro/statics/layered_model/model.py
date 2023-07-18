@@ -1,9 +1,14 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import torch
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from .profile_plot import ProfilePlot
+from ..statics import Statics
+from ...survey import Survey
+from ...metrics import MetricMap
+from ...utils import to_list, get_first_defined
 from ...const import HDR_FIRST_BREAK
 
 
@@ -395,6 +400,154 @@ class LayeredModel:
             for survey, traveltimes in zip(dataset.survey_list, pred_traveltimes):
                 survey[predicted_first_breaks_header] = traveltimes
         return dataset
+
+    # Statics calculation
+
+    def _process_coords(self, coords):
+        coords = np.array(coords)
+        is_1d = coords.ndim == 1
+        coords = np.atleast_2d(coords)
+        if coords.ndim > 2 or coords.shape[1] not in {2, 3}:
+            raise ValueError
+        if coords.shape[1] == 2:
+            coords = np.column_stack([coords, self.grid.surface_elevation_interpolator(coords)])
+        return coords, is_1d
+
+    @torch.no_grad()
+    def estimate_delays(self, coords, intermediate_datum=None, intermediate_datum_refractor=None, final_datum=None,
+                        replacement_velocity=None):
+        coords, is_1d = self._process_coords(coords)
+        indices, weights = self.grid.get_interpolation_params(coords[:, :2])
+        coords = torch.tensor(coords[:, :2], dtype=torch.float32, device=self.device)
+        elevations = torch.tensor(coords[:, -1], dtype=torch.float32, device=self.device)
+        indices = torch.tensor(indices, dtype=torch.int32, device=self.device)
+        weights = torch.tensor(weights, dtype=torch.float32, device=self.device)
+        slownesses, layer_elevations = self._get_params_by_indices(indices, weights)
+
+        if intermediate_datum is None:
+            if intermediate_datum_refractor is not None:
+                intermediate_elevations = elevations[:, intermediate_datum_refractor - 1]
+                if replacement_velocity is None:
+                    replacement_velocity = 1000 / slownesses[:, intermediate_datum_refractor - 1]
+            elif final_datum is not None:
+                intermediate_elevations = torch.tensor(final_datum, dtype=torch.float32, device=self.device)
+                final_datum = None
+            else:
+                raise ValueError
+        else:
+            if intermediate_datum_refractor is not None:
+                raise ValueError
+            intermediate_elevations = torch.tensor(intermediate_datum, dtype=torch.float32, device=self.device)
+        intermediate_elevations = torch.broadcast_to(intermediate_elevations, len(coords))
+
+        sign = torch.sign(elevations - intermediate_elevations)  # TODO: move inside _get_vertical_traveltimes
+        delays = sign * self._get_vertical_traveltimes(elevations, intermediate_elevations,
+                                                       layer_elevations, slownesses)
+        if final_datum is not None:
+            if replacement_velocity is None:
+                raise ValueError
+            delays += 1000 * (intermediate_elevations - final_datum) / replacement_velocity
+        delays = delays.detach().cpu().numpy()
+
+        if is_1d:
+            return delays[0]
+        return delays
+
+    def _get_source_delays(self, survey, index_cols, uphole_correction_method, **kwargs):
+        index_cols = to_list(index_cols)
+        cols = set(index_cols + ["SourceX", "SourceY", "SourceSurfaceElevation"])
+        if "SourceDepth" in survey.available_headers:
+            cols.add("SourceDepth")
+        if "SourceUpholeTime" in survey.available_headers:
+            cols.add("SourceUpholeTime")
+        data = survey.get_headers(list(cols))
+        data_gb = data.groupby(index_cols, as_index=False)
+        # TODO: probably add the check
+        # if (data_gb[["SourceX", "SourceY"]].nunique() > 1).any(axis=None):
+        #     raise ValueError("Duplicated coords for a single index value")
+        data = data_gb.mean()
+        source_coords = data[["SourceX", "SourceY", "SourceSurfaceElevation"]].to_numpy()
+        data["SurfaceDelay"] = self.estimate_delays(source_coords, **kwargs)
+        # uphole_correction_method = self._get_uphole_correction_method(survey)
+        uphole_correction_method = "time"  # FIXME
+        if uphole_correction_method == "time":
+            data["Delay"] = data["SurfaceDelay"] - data["SourceUpholeTime"]
+        elif uphole_correction_method == "depth":
+            source_coords[:, -1] = source_coords[:, -1] - data["SourceDepth"].to_numpy()
+            data["Delay"] = self.estimate_delays(source_coords, **kwargs)
+        else:
+            data["Delay"] = data["SurfaceDelay"]
+        return data
+
+    def _get_receiver_delays(self, survey, index_cols, **kwargs):
+        index_cols = to_list(index_cols)
+        cols = list(set(index_cols + ["GroupX", "GroupY", "ReceiverGroupElevation"]))
+        data = survey.get_headers(cols)
+        data_gb = data.groupby(index_cols, as_index=False)
+        # TODO: probably add the check
+        # if (data_gb[["GroupX", "GroupY"]].nunique() > 1).any(axis=None):
+        #     raise ValueError("Duplicated coords for a single index value")
+        data = data_gb.mean()
+        data["Delay"] = self.estimate_delays(data[["GroupX", "GroupY", "ReceiverGroupElevation"]].to_numpy(), **kwargs)
+        return data
+
+    def calculate_statics(self, survey=None, uphole_correction_method="auto", source_id_cols=None,
+                          receiver_id_cols=None, intermediate_datum=None, intermediate_datum_refractor=None,
+                          final_datum=None, replacement_velocity=None):
+        estimate_delays_kwargs = {
+            "intermediate_datum": intermediate_datum,
+            "intermediate_datum_refractor": intermediate_datum_refractor,
+            "final_datum": final_datum,
+            "replacement_velocity": replacement_velocity,
+        }
+
+        if survey is None:
+            if not self.grid.has_survey:
+                raise ValueError("A survey to calculate statics for must be passed")
+            survey_list = self.grid.survey_list
+            is_single_survey = self.grid.is_single_survey
+        else:
+            survey_list = to_list(survey)
+            is_single_survey = isinstance(survey, Survey)
+
+        if source_id_cols is None and any(sur.source_id_cols != survey_list[0].source_id_cols for sur in survey_list):
+            raise ValueError
+        source_id_cols = get_first_defined(source_id_cols, survey_list[0].source_id_cols)
+        if source_id_cols is None:
+            raise ValueError
+
+        if receiver_id_cols is None and any(sur.receiver_id_cols != survey_list[0].receiver_id_cols for sur in survey_list):
+            raise ValueError
+        receiver_id_cols = get_first_defined(receiver_id_cols, survey_list[0].receiver_id_cols)
+        if receiver_id_cols is None:
+            raise ValueError
+
+        add_part = len(survey_list) > 1
+        source_delays_list = []
+        receiver_delays_list = []
+        for i, survey in enumerate(survey_list):
+            source_delays = self._get_source_delays(survey, source_id_cols, uphole_correction_method,
+                                                    **estimate_delays_kwargs)
+            receiver_delays = self._get_receiver_delays(survey, receiver_id_cols, **estimate_delays_kwargs)
+            if add_part:
+                source_delays.insert(0, "Part", i)
+                receiver_delays.insert(0, "Part", i)
+            source_delays_list.append(source_delays)
+            receiver_delays_list.append(receiver_delays)
+        source_delays = pd.concat(source_delays_list, ignore_index=True, copy=False)
+        receiver_delays = pd.concat(receiver_delays_list, ignore_index=True, copy=False)
+        source_id_cols = to_list(source_id_cols)
+        if add_part:
+            source_id_cols = ["Part"] + source_id_cols
+        receiver_id_cols = to_list(receiver_id_cols)
+        if add_part:
+            receiver_id_cols = ["Part"] + receiver_id_cols
+
+        source_map = MetricMap(source_delays[["SourceX", "SourceY"]], source_delays["Delay"], index=source_delays[source_id_cols])
+        corrected_source_map = MetricMap(source_delays[["SourceX", "SourceY"]], source_delays["SurfaceDelay"], index=source_delays[source_id_cols])
+        receiver_map = MetricMap(receiver_delays[["GroupX", "GroupY"]], receiver_delays["Delay"], index=receiver_delays[receiver_id_cols])
+        survey_list = survey_list[0] if is_single_survey else survey_list
+        return Statics(survey_list, source_map, receiver_map, corrected_source_map)
 
     # Model visualization
 
