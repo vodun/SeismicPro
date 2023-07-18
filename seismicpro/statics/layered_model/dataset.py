@@ -34,9 +34,10 @@ class TravelTimeDataset:
         self.first_breaks_header = first_breaks_header
         self.uphole_correction_method_list = None
         self.source_elevations = None
-        self.traveltime_corrections = None
+        self.true_traveltimes = None
+        self.pred_traveltimes = None
         self.target_traveltimes = None
-        self.prediction_traveltimes = None
+        self.traveltime_corrections = None
         self.set_uphole_correction_method(uphole_correction_method)
 
         # Construct an interpolation grid for mean slowness estimation
@@ -62,7 +63,8 @@ class TravelTimeDataset:
 
     def _process_survey_uphole_correction_method(self, survey, uphole_correction_method):
         source_elevations = survey["SourceSurfaceElevation"]
-        target_traveltimes = survey[self.first_breaks_header]
+        true_traveltimes = survey[self.first_breaks_header]
+        target_traveltimes = true_traveltimes
         uphole_correction_method = self._get_uphole_correction_method(survey, uphole_correction_method)
         if uphole_correction_method == "time":
             traveltime_corrections = survey["SourceUpholeTime"]
@@ -72,7 +74,8 @@ class TravelTimeDataset:
             traveltime_corrections = np.zeros_like(target_traveltimes)
         else:
             traveltime_corrections = np.zeros_like(target_traveltimes)
-        return source_elevations, target_traveltimes, traveltime_corrections, uphole_correction_method
+        return (source_elevations, true_traveltimes, target_traveltimes,
+                traveltime_corrections, uphole_correction_method)
 
     def set_uphole_correction_method(self, uphole_correction_method):
         uphole_correction_method_list = to_list(uphole_correction_method)
@@ -81,12 +84,13 @@ class TravelTimeDataset:
         if len(uphole_correction_method_list) != len(self.survey_list):
             raise ValueError
 
-        res = [self._process_survey_uphole_correction_method(survey, uphole_correction_method)
-               for survey, uphole_correction_method in zip(self.survey_list, uphole_correction_method_list)]
-        source_elevations, target_traveltimes, traveltime_corrections, self.uphole_correction_method_list = zip(*res)
-        self.source_elevations = torch.tensor(np.concatenate(source_elevations), dtype=torch.float32)
-        self.target_traveltimes = torch.tensor(np.concatenate(target_traveltimes), dtype=torch.float32)
-        self.traveltime_corrections = torch.tensor(np.concatenate(traveltime_corrections), dtype=torch.float32)
+        res = zip(*[self._process_survey_uphole_correction_method(survey, uphole_correction_method)
+                    for survey, uphole_correction_method in zip(self.survey_list, uphole_correction_method_list)])
+        self.source_elevations = torch.tensor(np.concatenate(res[0]), dtype=torch.float32)
+        self.true_traveltimes = torch.tensor(np.concatenate(res[1]), dtype=torch.float32)
+        self.target_traveltimes = torch.tensor(np.concatenate(res[2]), dtype=torch.float32)
+        self.traveltime_corrections = torch.tensor(np.concatenate(res[3]), dtype=torch.float32)
+        self.uphole_correction_method_list = list(res[4])
 
     @staticmethod
     @njit(nogil=True, parallel=True)
@@ -184,4 +188,4 @@ class TravelTimeDataset:
     def evaluate(self):
         if not self.has_predictions:
             raise ValueError
-        return torch.abs(self.prediction_traveltimes - self.target_traveltimes).mean().item()
+        return torch.abs(self.prediction_traveltimes - self.true_traveltimes).mean().item()

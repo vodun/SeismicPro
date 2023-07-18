@@ -93,7 +93,8 @@ class LayeredModel:
 
     @classmethod
     def _init_model(cls, grid, rvf_params, init_weathering_velocity=None):
-        rvf_params = np.broadcast_to(rvf_params, (grid.n_coords, len(rvf_params)))
+        rvf_params = np.atleast_2d(rvf_params)
+        rvf_params = np.broadcast_to(rvf_params, (grid.n_coords, rvf_params.shape[1]))
         n_refractors = rvf_params.shape[1] // 2
 
         # Initialize weathering velocity and validate layer velocities for correctness
@@ -374,9 +375,9 @@ class LayeredModel:
                 self.weathering_slowness_tensor.clamp_(min=self.slownesses_tensor[:, 0])
 
             self.loss_hist.append(loss.item())
-            self.velocities_reg_hist.append(velocities_reg.item())
-            self.elevations_reg_hist.append(elevations_reg.item())
-            self.thicknesses_reg_hist.append(thicknesses_reg.item())
+            self.velocities_reg_hist.append(velocities_reg)
+            self.elevations_reg_hist.append(elevations_reg)
+            self.thicknesses_reg_hist.append(thicknesses_reg)
 
     def predict(self, dataset, batch_size=1000000, bar=True):
         loader = dataset.create_predict_loader(batch_size=batch_size, n_epochs=1, shuffle=False, drop_last=False,
