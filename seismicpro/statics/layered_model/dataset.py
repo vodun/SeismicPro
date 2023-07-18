@@ -49,7 +49,7 @@ class TravelTimeDataset:
 
     @property
     def has_predictions(self):
-        return self.prediction_traveltimes is not None
+        return self.pred_traveltimes is not None
 
     @staticmethod
     def _get_uphole_correction_method(survey, uphole_correction_method):
@@ -190,4 +190,4 @@ class TravelTimeDataset:
     def evaluate(self):
         if not self.has_predictions:
             raise ValueError
-        return torch.abs(self.prediction_traveltimes - self.true_traveltimes).mean().item()
+        return torch.abs(self.pred_traveltimes - self.true_traveltimes).mean().item()

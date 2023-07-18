@@ -379,14 +379,21 @@ class LayeredModel:
             self.elevations_reg_hist.append(elevations_reg)
             self.thicknesses_reg_hist.append(thicknesses_reg)
 
-    def predict(self, dataset, batch_size=1000000, bar=True):
+    def predict(self, dataset, batch_size=1000000, bar=True, store_to_survey=True,
+                predicted_first_breaks_header="PredictedFirstBreak"):
         loader = dataset.create_predict_loader(batch_size=batch_size, n_epochs=1, shuffle=False, drop_last=False,
                                                device=self.device, bar=bar)
         with torch.no_grad():
-            prediction_traveltimes = [(self._estimate_traveltimes_by_indices(*params) - traveltime_corrections).cpu()
-                                      for *params, traveltime_corrections in loader]
-        prediction_traveltimes = torch.cat(prediction_traveltimes)
-        dataset.prediction_traveltimes = prediction_traveltimes
+            pred_traveltimes = [(self._estimate_traveltimes_by_indices(*params) - traveltime_corrections).cpu()
+                                for *params, traveltime_corrections in loader]
+        pred_traveltimes = torch.cat(pred_traveltimes)
+        dataset.pred_traveltimes = pred_traveltimes
+
+        if store_to_survey:
+            split_indices = np.cumsum([survey.n_traces for survey in dataset.survey_list[:-1]])
+            pred_traveltimes = np.split(pred_traveltimes.numpy(), split_indices)
+            for survey, traveltimes in zip(dataset.survey_list, pred_traveltimes):
+                survey[predicted_first_breaks_header] = traveltimes
         return dataset
 
     # Model visualization
