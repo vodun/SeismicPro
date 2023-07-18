@@ -418,15 +418,15 @@ class LayeredModel:
                         replacement_velocity=None):
         coords, is_1d = self._process_coords(coords)
         indices, weights = self.grid.get_interpolation_params(coords[:, :2])
-        coords = torch.tensor(coords[:, :2], dtype=torch.float32, device=self.device)
-        elevations = torch.tensor(coords[:, -1], dtype=torch.float32, device=self.device)
+        src_coords = torch.tensor(coords[:, :2], dtype=torch.float32, device=self.device)
+        src_elevations = torch.tensor(coords[:, -1], dtype=torch.float32, device=self.device)
         indices = torch.tensor(indices, dtype=torch.int32, device=self.device)
         weights = torch.tensor(weights, dtype=torch.float32, device=self.device)
         slownesses, layer_elevations = self._get_params_by_indices(indices, weights)
 
         if intermediate_datum is None:
             if intermediate_datum_refractor is not None:
-                intermediate_elevations = elevations[:, intermediate_datum_refractor - 1]
+                intermediate_elevations = layer_elevations[:, intermediate_datum_refractor - 1]
                 if replacement_velocity is None:
                     replacement_velocity = 1000 / slownesses[:, intermediate_datum_refractor - 1]
             elif final_datum is not None:
@@ -438,10 +438,10 @@ class LayeredModel:
             if intermediate_datum_refractor is not None:
                 raise ValueError
             intermediate_elevations = torch.tensor(intermediate_datum, dtype=torch.float32, device=self.device)
-        intermediate_elevations = torch.broadcast_to(intermediate_elevations, len(coords))
+        intermediate_elevations = torch.broadcast_to(intermediate_elevations, (len(coords),))
 
-        sign = torch.sign(elevations - intermediate_elevations)  # TODO: move inside _get_vertical_traveltimes
-        delays = sign * self._get_vertical_traveltimes(elevations, intermediate_elevations,
+        sign = torch.sign(src_elevations - intermediate_elevations)  # TODO: move inside _get_vertical_traveltimes
+        delays = sign * self._get_vertical_traveltimes(src_elevations, intermediate_elevations,
                                                        layer_elevations, slownesses)
         if final_datum is not None:
             if replacement_velocity is None:
