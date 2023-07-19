@@ -235,19 +235,24 @@ class LayeredModel:
         return sensor_layers, incidence_times, paths_along_refractors
 
     @staticmethod
-    def _get_vertical_traveltimes(src_elevations, dst_elevations, elevations, slownesses):
+    def _estimate_vertical_traveltimes(src_elevations, dst_elevations, layer_slownesses, layer_elevations):
         high_elevations = torch.maximum(src_elevations, dst_elevations)
         low_elevations = torch.minimum(src_elevations, dst_elevations)
-        passes_len = high_elevations - low_elevations
-        dist_to_layer = high_elevations.reshape(-1, 1) - elevations
-        dist_to_layer[dist_to_layer < 0] = 0
-        passes = torch.diff(dist_to_layer, prepend=torch.zeros_like(elevations[:, :1]), append=dist_to_layer[:, -1:], axis=-1)
-        zero_mask = passes.cumsum(axis=1) > passes_len.reshape(-1, 1)
-        passes[zero_mask] = 0
-        overflow_ix = zero_mask.max(axis=1)[1]
-        last_ix = torch.where(zero_mask.any(axis=1), overflow_ix, torch.full_like(overflow_ix, -1))
-        passes[torch.arange(len(src_elevations)), last_ix] = passes_len - passes.sum(axis=1)
-        return (passes * slownesses).sum(axis=1)
+        total_pass_dist = high_elevations - low_elevations
+
+        dist_to_layers = high_elevations.reshape(-1, 1) - layer_elevations
+        dist_to_layers[dist_to_layers < 0] = 0
+        vertical_pass_dist = torch.diff(dist_to_layers, prepend=torch.zeros_like(layer_elevations[:, :1]), axis=1)
+        vertical_pass_dist = torch.column_stack([vertical_pass_dist, total_pass_dist])
+
+        overflow_mask = vertical_pass_dist.cumsum(axis=1) > total_pass_dist.reshape(-1, 1)
+        vertical_pass_dist[overflow_mask] = 0
+        residual_pass_dist = total_pass_dist - vertical_pass_dist.sum(axis=1)
+        overflow_ix = overflow_mask.max(axis=1)[1]
+        vertical_pass_dist[torch.arange(len(src_elevations)), overflow_ix] = residual_pass_dist
+
+        traveltimes = (vertical_pass_dist * layer_slownesses).sum(axis=1)
+        return traveltimes
 
     # args = (source_layers, source_elevations, source_layer_slownesses, source_layer_elevations,
     #         receiver_layers, receiver_elevations, receiver_layer_slownesses, receiver_layer_elevations,
@@ -264,8 +269,8 @@ class LayeredModel:
         receivers_last_elevation = torch.minimum(receivers_elevations, padded_receivers_elevations[torch.arange(batch_size), max_layer])
         max_layer_dist = torch.sqrt(offsets**2 + (receivers_last_elevation - shots_last_elevation)**2)
         max_layer_traveltime = max_layer_dist * mean_slownesses[torch.arange(batch_size), max_layer]
-        shots_correction = cls._get_vertical_traveltimes(shots_elevations, shots_last_elevation, shots_layer_elevations, shots_slownesses)
-        receivers_correction = cls._get_vertical_traveltimes(receivers_elevations, receivers_last_elevation, receivers_layer_elevations, receivers_slownesses)
+        shots_correction = cls._estimate_vertical_traveltimes(shots_elevations, shots_last_elevation, shots_slownesses, shots_layer_elevations)
+        receivers_correction = cls._estimate_vertical_traveltimes(receivers_elevations, receivers_last_elevation, receivers_slownesses, receivers_layer_elevations)
         return max_layer_traveltime + shots_correction + receivers_correction
 
     @staticmethod
@@ -489,8 +494,8 @@ class LayeredModel:
 
         # Calculate delays from sensor locations to intermediate datum
         sign = torch.sign(elevations - intermediate_elevations)
-        delays = sign * self._get_vertical_traveltimes(elevations, intermediate_elevations,
-                                                       layer_elevations, layer_slownesses)
+        delays = sign * self._estimate_vertical_traveltimes(elevations, intermediate_elevations,
+                                                            layer_slownesses, layer_elevations)
 
         # Add delays from intermediate to final datum
         if final_datum is not None:
