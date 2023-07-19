@@ -186,16 +186,22 @@ class LayeredModel:
 
     # Traveltime estimation
 
-    def _describe_incident_rays(self, sensor_elevations, layer_slownesses, layer_elevations,
-                                layer_dips_cos, layer_dips_tan):
+    @staticmethod
+    def _describe_incident_rays(sensor_elevations, layer_slownesses, layer_elevations, layer_dips_cos, layer_dips_tan):
         batch_size = len(sensor_elevations)
+        n_refractors = layer_elevations.shape[1]
+        device = sensor_elevations.device
 
         # Calculate parameters of angles of incidence: param[:, i, j] contains a value of a given incidence parameter
-        # at the border between i-th and (i+1)-th layer if critical refraction occurred at the border between j-th and
-        # (j+1)-th layer. If i > j, param values are calculated as well but unused later.
+        # at the border between j-th and (j+1)-th layer if critical refraction occurred at the border between i-th and
+        # (i+1)-th layer. If i < j, param values are calculated as well but unused later.
         incidence_sin = torch.clip(layer_slownesses[:, 1:, None] / layer_slownesses[:, None, :-1], max=0.999)
         incidence_cos = torch.sqrt(1 - incidence_sin**2)
         incidence_tan = incidence_sin / incidence_cos
+
+        # Calculate coefficients for ray correction to account for dipping refractors
+        horizontal_correction_coef = layer_dips_cos[:, None] * (incidence_tan + layer_dips_tan[:, None])
+        vertical_correction_coef = -torch.diff(layer_dips_tan, axis=1)[:, :, None]
 
         # Infer which layer each sensor belongs to and calculate vertical distances to all layers below
         dist_to_layers = sensor_elevations.reshape(-1, 1) - layer_elevations  # (bs, n_ref)
@@ -204,19 +210,23 @@ class LayeredModel:
         sensor_layers = layer_above_mask.sum(axis=1)  # (bs,)
 
         # Calculate normal passes through each layer: normal_dist[:, i, j] contains a normal distance path through
-        # layer i if critical refraction occurred at the border between layers j and j+1.
+        # layer j if critical refraction occurred at the border between layers i and i+1.
         vertical_pass_dist = torch.diff(dist_to_layers, prepend=torch.zeros_like(dist_to_layers[:, :1]), axis=1)
         first_layer_normal_dist = vertical_pass_dist[:, 0, None] * layer_dips_cos[:, 0, None]
-        normal_dist_list = [first_layer_normal_dist.broadcast_to(batch_size, self.n_refractors)]
+        normal_dist_list = [first_layer_normal_dist.broadcast_to(batch_size, n_refractors)]
         horizontal_correction_dist = 0  # (bs, n_ref), critical refraction index over the last axis
-        for i in range(0, self.n_refractors - 1):
-            horizontal_correction_delta = normal_dist_list[i] * layer_dips_cos[:, i, None] * (incidence_tan[:, :, i] + layer_dips_tan[:, i, None])
+        for i in range(0, n_refractors - 1):
+            horizontal_correction_delta = normal_dist_list[i] * horizontal_correction_coef[:, :, i]
             horizontal_correction_dist = horizontal_correction_dist + horizontal_correction_delta
-            corrected_vertical_pass_dist = vertical_pass_dist[:, i + 1, None] + horizontal_correction_dist * (layer_dips_tan[:, i, None] - layer_dips_tan[:, i + 1, None])
-            normal_dist_list.append(corrected_vertical_pass_dist * layer_dips_cos[:, i + 1, None])
+            vertical_correction_delta = horizontal_correction_dist * vertical_correction_coef[:, i]
+            corrected_vertical_pass_dist = vertical_pass_dist[:, i + 1, None] + vertical_correction_delta
+            normal_dist = corrected_vertical_pass_dist * layer_dips_cos[:, i + 1, None]
+            normal_dist_list.append(normal_dist)
         normal_dist = torch.stack(normal_dist_list, axis=-1)
-        arange = torch.arange(self.n_refractors, device=self.device)
-        zero_mask = (arange.reshape(-1, 1) < arange).broadcast_to(batch_size, self.n_refractors, self.n_refractors)
+
+        # Zero out norm[:, i, j] if i < j
+        arange = torch.arange(n_refractors, device=device)
+        zero_mask = torch.broadcast_to(arange.reshape(-1, 1) < arange, normal_dist.shape)
         normal_dist[zero_mask] = 0
 
         # Calculate passes along each previous refractor and the total incidence time for each final refractor
@@ -278,7 +288,7 @@ class LayeredModel:
                               intermediate_ray_indices, intermediate_ray_weights):
         # Calculate an offset and mean slowness of each layer for each trace
         offsets = torch.sqrt(torch.sum((source_coords - receiver_coords)**2, axis=1))
-        mean_layer_slownesses = self._interpolate_layer_elevations(intermediate_ray_indices, intermediate_ray_weights)
+        mean_layer_slownesses = self._interpolate_layer_slownesses(intermediate_ray_indices, intermediate_ray_weights)
 
         # Return direct traveltimes in case of a single-layer model
         if self.n_layers == 1:
