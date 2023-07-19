@@ -12,7 +12,7 @@ from ...utils import to_list, IDWInterpolator
 
 class SpatialGrid:
     def __init__(self, coords, surface_elevations, survey=None, n_interpolation_neighbors=1):
-        coords, _ = self._process_coords(coords)
+        coords, _ = self.process_coords(coords)
         surface_elevations = np.broadcast_to(surface_elevations, len(coords))
 
         self.coords = coords
@@ -42,7 +42,7 @@ class SpatialGrid:
         return self.survey_list is not None
 
     @staticmethod
-    def _process_coords(coords):
+    def process_coords(coords):
         coords = np.array(coords)
         is_1d = coords.ndim == 1
         coords = np.atleast_2d(coords)
@@ -176,7 +176,7 @@ class SpatialGrid:
         return self.surface_elevation_interpolator._get_reference_indices_neighbors(coords)
 
     def interpolate(self, values, coords):
-        coords, is_1d = (coords.coords, False) if isinstance(coords, SpatialGrid) else self._process_coords(coords)
+        coords, is_1d = (coords.coords, False) if isinstance(coords, SpatialGrid) else self.process_coords(coords)
         res = self.interpolator_class(self.coords, values)(coords)
         if is_1d:
             return res[0]

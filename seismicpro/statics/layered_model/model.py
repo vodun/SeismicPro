@@ -94,6 +94,16 @@ class LayeredModel:
             raise ValueError("Arrays must be 2-dimensional at most")
         return np.broadcast_to(arr, (self.n_coords, arr.shape[1]))
 
+    def process_coords(self, coords):
+        coords = np.array(coords)
+        is_1d = coords.ndim == 1
+        coords = np.atleast_2d(coords)
+        if coords.ndim > 2 or coords.shape[1] not in {2, 3}:
+            raise ValueError
+        if coords.shape[1] == 2:
+            coords = np.column_stack([coords, self.grid.surface_elevation_interpolator(coords)])
+        return coords, is_1d
+
     # IO
 
     @classmethod
@@ -176,37 +186,46 @@ class LayeredModel:
 
     # Traveltime estimation
 
-    def _describe_rays(self, sensor_elevations, slownesses, elevations, dips_cos, dips_tan):
+    def _describe_incident_rays(self, sensor_elevations, layer_slownesses, layer_elevations,
+                                layer_dips_cos, layer_dips_tan):
         batch_size = len(sensor_elevations)
-        n_refractors = slownesses.shape[-1] - 1
 
-        incidence_sin = torch.clamp(slownesses[:, 1:, None] / slownesses[:, None, :-1], max=0.999)
+        # Calculate parameters of angles of incidence: param[:, i, j] contains a value of a given incidence parameter
+        # at the border between i-th and (i+1)-th layer if critical refraction occurred at the border between j-th and
+        # (j+1)-th layer. If i > j, param values are calculated as well but unused later.
+        incidence_sin = torch.clip(layer_slownesses[:, 1:, None] / layer_slownesses[:, None, :-1], max=0.999)
         incidence_cos = torch.sqrt(1 - incidence_sin**2)
         incidence_tan = incidence_sin / incidence_cos
 
-        dist_to_layer = sensor_elevations.reshape(-1, 1) - elevations  # (bs, n_ref)
-        layer_above_mask = dist_to_layer < 0
-        coords_layer = layer_above_mask.sum(axis=1)  # (bs,)
-        dist_to_layer[layer_above_mask] = 0
-        zeros_tensor = torch.zeros(len(dist_to_layer), 1, dtype=dist_to_layer.dtype, device=dist_to_layer.device)
-        vertical_pass_dist = torch.diff(dist_to_layer, prepend=zeros_tensor, axis=-1)  # (bs, n_ref) [0 ... n_ref - 1]
+        # Infer which layer each sensor belongs to and calculate vertical distances to all layers below
+        dist_to_layers = sensor_elevations.reshape(-1, 1) - layer_elevations  # (bs, n_ref)
+        layer_above_mask = dist_to_layers < 0
+        dist_to_layers[layer_above_mask] = 0
+        sensor_layers = layer_above_mask.sum(axis=1)  # (bs,)
 
-        normal_dist_list = [(vertical_pass_dist[:, 0, None] * dips_cos[:, 0, None]).broadcast_to(batch_size, n_refractors)]
-        horizontal_correction_dist = 0  # (bs, n_ref (refracted from))
-        for i in range(0, n_refractors - 1):
-            horizontal_correction_dist = horizontal_correction_dist + normal_dist_list[i] * dips_cos[:, i, None] * (incidence_tan[:, :, i] + dips_tan[:, i, None])
-            corrected_vertical_pass_dist = vertical_pass_dist[:, i + 1, None] + horizontal_correction_dist * (dips_tan[:, i, None] - dips_tan[:, i + 1, None])
-            normal_dist_list.append(corrected_vertical_pass_dist * dips_cos[:, i + 1, None])
+        # Calculate normal passes through each layer: normal_dist[:, i, j] contains a normal distance path through
+        # layer i if critical refraction occurred at the border between layers j and j+1.
+        vertical_pass_dist = torch.diff(dist_to_layers, prepend=torch.zeros_like(dist_to_layers[:, :1]), axis=1)
+        first_layer_normal_dist = vertical_pass_dist[:, 0, None] * layer_dips_cos[:, 0, None]
+        normal_dist_list = [first_layer_normal_dist.broadcast_to(batch_size, self.n_refractors)]
+        horizontal_correction_dist = 0  # (bs, n_ref), critical refraction index over the last axis
+        for i in range(0, self.n_refractors - 1):
+            horizontal_correction_delta = normal_dist_list[i] * layer_dips_cos[:, i, None] * (incidence_tan[:, :, i] + layer_dips_tan[:, i, None])
+            horizontal_correction_dist = horizontal_correction_dist + horizontal_correction_delta
+            corrected_vertical_pass_dist = vertical_pass_dist[:, i + 1, None] + horizontal_correction_dist * (layer_dips_tan[:, i, None] - layer_dips_tan[:, i + 1, None])
+            normal_dist_list.append(corrected_vertical_pass_dist * layer_dips_cos[:, i + 1, None])
         normal_dist = torch.stack(normal_dist_list, axis=-1)
-        arange = torch.arange(n_refractors, device=self.device)
-        zero_mask = (arange.reshape(-1, 1) < arange).broadcast_to(batch_size, n_refractors, n_refractors)
+        arange = torch.arange(self.n_refractors, device=self.device)
+        zero_mask = (arange.reshape(-1, 1) < arange).broadcast_to(batch_size, self.n_refractors, self.n_refractors)
         normal_dist[zero_mask] = 0
 
+        # Calculate passes along each previous refractor and the total incidence time for each final refractor
+        incidence_times = (normal_dist / incidence_cos * layer_slownesses[:, None, :-1]).sum(axis=-1)
         paths_along_refractors = normal_dist * incidence_tan
-        incidence_times = (normal_dist / incidence_cos * slownesses[:, None, :-1]).sum(axis=-1)
-        return incidence_times, paths_along_refractors, coords_layer
+        return sensor_layers, incidence_times, paths_along_refractors
 
-    def _get_vertical_traveltimes(self, src_elevations, dst_elevations, elevations, slownesses):
+    @staticmethod
+    def _get_vertical_traveltimes(src_elevations, dst_elevations, elevations, slownesses):
         high_elevations = torch.maximum(src_elevations, dst_elevations)
         low_elevations = torch.minimum(src_elevations, dst_elevations)
         passes_len = high_elevations - low_elevations
@@ -220,8 +239,12 @@ class LayeredModel:
         passes[torch.arange(len(src_elevations)), last_ix] = passes_len - passes.sum(axis=1)
         return (passes * slownesses).sum(axis=1)
 
-    def _estimate_direct_traveltimes(self, shots_elevations, shots_layer_elevations, shots_slownesses, shots_layers,
-                                     receivers_elevations, receivers_layer_elevations, receivers_slownesses, receivers_layers,
+    # args = (source_layers, source_elevations, source_layer_slownesses, source_layer_elevations,
+    #         receiver_layers, receiver_elevations, receiver_layer_slownesses, receiver_layer_elevations,
+    #         offsets, mean_layer_slownesses)
+    @classmethod
+    def _estimate_direct_traveltimes(cls, shots_layers, shots_elevations, shots_slownesses, shots_layer_elevations,
+                                     receivers_layers, receivers_elevations, receivers_slownesses, receivers_layer_elevations,
                                      offsets, mean_slownesses):
         batch_size = len(shots_elevations)
         max_layer = torch.maximum(shots_layers, receivers_layers)
@@ -231,68 +254,90 @@ class LayeredModel:
         receivers_last_elevation = torch.minimum(receivers_elevations, padded_receivers_elevations[torch.arange(batch_size), max_layer])
         max_layer_dist = torch.sqrt(offsets**2 + (receivers_last_elevation - shots_last_elevation)**2)
         max_layer_traveltime = max_layer_dist * mean_slownesses[torch.arange(batch_size), max_layer]
-        shots_correction = self._get_vertical_traveltimes(shots_elevations, shots_last_elevation, shots_layer_elevations, shots_slownesses)
-        receivers_correction = self._get_vertical_traveltimes(receivers_elevations, receivers_last_elevation, receivers_layer_elevations, receivers_slownesses)
+        shots_correction = cls._get_vertical_traveltimes(shots_elevations, shots_last_elevation, shots_layer_elevations, shots_slownesses)
+        receivers_correction = cls._get_vertical_traveltimes(receivers_elevations, receivers_last_elevation, receivers_layer_elevations, receivers_slownesses)
         return max_layer_traveltime + shots_correction + receivers_correction
-
-    def _estimate_traveltimes(self, shots_coords, shots_elevations, shots_slownesses, shots_layer_elevations,
-                              receivers_coords, receivers_elevations, receivers_slownesses, receivers_layer_elevations,
-                              mean_slownesses):
-        n_refractors = shots_slownesses.shape[-1] - 1
-
-        offsets = torch.sqrt(torch.sum((shots_coords[:, :2] - receivers_coords[:, :2])**2, axis=1))
-        dips_tan = (receivers_layer_elevations - shots_layer_elevations) / torch.clamp(offsets, min=0.01).reshape(-1, 1)
-        dips_cos = torch.sqrt(1 / (1 + dips_tan**2))
-        dips_sin = dips_cos * dips_tan
-        dips_cos_diff = torch.column_stack([dips_cos[:, 0], dips_cos[:, 1:] * dips_cos[:, :-1] + dips_sin[:, 1:] * dips_sin[:, :-1]])
-
-        shots_stats = self._describe_rays(shots_elevations, shots_slownesses, shots_layer_elevations, dips_cos, dips_tan)
-        shots_incidence_times, shots_incidence_paths_along_refractors, shots_layers = shots_stats
-        receivers_stats = self._describe_rays(receivers_elevations, receivers_slownesses, receivers_layer_elevations,
-                                              dips_cos, -dips_tan)
-        receivers_incidence_times, receivers_incidence_paths_along_refractors, receivers_layers = receivers_stats
-        incidence_paths_along_refractors = shots_incidence_paths_along_refractors + receivers_incidence_paths_along_refractors
-
-        paths_list = []
-        curr_paths = offsets.reshape(-1, 1)
-        for i in range(n_refractors):
-            curr_paths = curr_paths * dips_cos_diff[i] - incidence_paths_along_refractors[:, :, i]
-            paths_list.append(curr_paths[:, i])
-        paths_along_refractors = torch.column_stack(paths_list)  # (bs, n_ref)
-
-        direct_traveltimes = self._estimate_direct_traveltimes(shots_elevations, shots_layer_elevations, shots_slownesses, shots_layers,
-                                                               receivers_elevations, receivers_layer_elevations, receivers_slownesses, receivers_layers,
-                                                               offsets, mean_slownesses)
-        refracted_traveltimes = paths_along_refractors * mean_slownesses[:, 1:] + shots_incidence_times + receivers_incidence_times
-        ignore_mask = ((paths_along_refractors < 0) |
-                       (torch.maximum(shots_layers, receivers_layers).reshape(-1, 1) > torch.arange(n_refractors, device=self.device)))
-        undefined_traveltime = torch.maximum(refracted_traveltimes.max(), direct_traveltimes.max()) + 1
-        traveltimes = torch.column_stack([direct_traveltimes, torch.where(~ignore_mask, refracted_traveltimes, undefined_traveltime)])
-        return traveltimes.min(axis=1)[0]
 
     @staticmethod
     def _weight_tensor(tensor, indices, weights):
+        # index_select is much faster than advanced indexing during backward
         indexed_shape = indices.shape + tensor.shape[1:]
         indexed = tensor.index_select(0, indices.ravel()).reshape(indexed_shape)
         weights_shape = weights.shape + (1,) * (tensor.ndim - 1)
         return (indexed * weights.reshape(weights_shape)).sum(axis=1)
 
-    def _get_params_by_indices(self, indices, weights):
-        slownesses = torch.column_stack([self._weight_tensor(self.weathering_slowness_tensor, indices, weights),
-                                         self._weight_tensor(self.slownesses_tensor, indices, weights)])
-        elevations = self._weight_tensor(self.elevations_tensor, indices, weights)
-        return slownesses, elevations
+    def _interpolate_layer_slownesses(self, indices, weights):
+        return torch.column_stack([self._weight_tensor(self.weathering_slowness_tensor, indices, weights),
+                                   self._weight_tensor(self.slownesses_tensor, indices, weights)])
 
-    def _estimate_traveltimes_by_indices(self, source_coords, source_elevations, source_indices, source_weights,
-                                         receiver_coords, receiver_elevations, receiver_indices, receiver_weights,
-                                         grid_indices, grid_weights):
-        source_slownesses, source_layer_elevations = self._get_params_by_indices(source_indices, source_weights)
-        receiver_slownesses, receiver_layer_elevations = self._get_params_by_indices(receiver_indices, receiver_weights)
-        mean_slownesses = torch.column_stack([self._weight_tensor(self.weathering_slowness_tensor, grid_indices, grid_weights),
-                                              self._weight_tensor(self.slownesses_tensor, grid_indices, grid_weights)])
-        return self._estimate_traveltimes(source_coords, source_elevations, source_slownesses, source_layer_elevations,
-                                          receiver_coords, receiver_elevations, receiver_slownesses, receiver_layer_elevations,
-                                          mean_slownesses)
+    def _interpolate_layer_elevations(self, indices, weights):
+        return self._weight_tensor(self.elevations_tensor, indices, weights)
+
+    def _estimate_traveltimes(self, source_coords, source_elevations, source_indices, source_weights,
+                              receiver_coords, receiver_elevations, receiver_indices, receiver_weights,
+                              intermediate_ray_indices, intermediate_ray_weights):
+        # Calculate an offset and mean slowness of each layer for each trace
+        offsets = torch.sqrt(torch.sum((source_coords - receiver_coords)**2, axis=1))
+        mean_layer_slownesses = self._interpolate_layer_elevations(intermediate_ray_indices, intermediate_ray_weights)
+
+        # Return direct traveltimes in case of a single-layer model
+        if self.n_layers == 1:
+            squared_ray_lens = offsets**2 + (receiver_elevations - source_elevations)**2
+            ray_lens = torch.sqrt(torch.clip(squared_ray_lens, min=0.01)) # Avoid nans during backward
+            return ray_lens * mean_layer_slownesses[:, 0]
+
+        # Interpolate layer slownesses and elevations at source and receiver locations
+        source_layer_slownesses = self._interpolate_layer_slownesses(source_indices, source_weights)
+        source_layer_elevations = self._interpolate_layer_elevations(source_indices, source_weights)
+        receiver_layer_slownesses = self._interpolate_layer_slownesses(receiver_indices, receiver_weights)
+        receiver_layer_elevations = self._interpolate_layer_elevations(receiver_indices, receiver_weights)
+
+        # Estimate refractor dips
+        layer_elevations_diff = receiver_layer_elevations - source_layer_elevations
+        layer_dips_tan = layer_elevations_diff / torch.clip(offsets, min=0.01).reshape(-1, 1)
+        layer_dips_cos = torch.sqrt(1 / (1 + layer_dips_tan**2))
+        layer_dips_sin = layer_dips_cos * layer_dips_tan
+        layer_dips_cos_diff = (layer_dips_cos[:, 1:] * layer_dips_cos[:, :-1] +
+                               layer_dips_sin[:, 1:] * layer_dips_sin[:, :-1])
+        layer_dips_cos_diff = torch.column_stack([layer_dips_cos[:, 0], layer_dips_cos_diff])
+
+        # Calculate parameters of incident rays from sources to a given refractor and back from the refractor to the
+        # corresponding receiver
+        source_ray_params = self._describe_incident_rays(source_elevations, source_layer_slownesses,
+                                                         source_layer_elevations, layer_dips_cos, layer_dips_tan)
+        source_layers, source_incidence_times, source_paths_along_refractors = source_ray_params
+        receiver_ray_params = self._describe_incident_rays(receiver_elevations, receiver_layer_slownesses,
+                                                           receiver_layer_elevations, layer_dips_cos, -layer_dips_tan)
+        receiver_layers, receiver_incidence_times, receiver_paths_along_refractors = receiver_ray_params
+
+        # Calculate traveltimes of direct waves
+        args = (source_layers, source_elevations, source_layer_slownesses, source_layer_elevations,
+                receiver_layers, receiver_elevations, receiver_layer_slownesses, receiver_layer_elevations,
+                offsets, mean_layer_slownesses)
+        direct_traveltimes = self._estimate_direct_traveltimes(*args)
+
+        # Calculate traveltimes of waves refracted from each layer for each trace
+        residual_paths_along_refractors = []
+        sensor_paths_along_refractors = source_paths_along_refractors + receiver_paths_along_refractors
+        current_paths = offsets.reshape(-1, 1)
+        for i in range(self.n_refractors):
+            current_paths = current_paths * layer_dips_cos_diff[i] - sensor_paths_along_refractors[:, :, i]
+            residual_paths_along_refractors.append(current_paths[:, i])
+        residual_paths_along_refractors = torch.column_stack(residual_paths_along_refractors)  # (bs, n_ref)
+        traveltimes_along_refractors = residual_paths_along_refractors * mean_layer_slownesses[:, 1:]
+        refracted_traveltimes = traveltimes_along_refractors + source_incidence_times + receiver_incidence_times
+
+        # Ignore impossible refractions
+        min_valid_refractor = torch.maximum(source_layers, receiver_layers).reshape(-1, 1)
+        shallow_refractor_mask = min_valid_refractor > torch.arange(self.n_refractors, device=self.device)
+        negative_path_mask = residual_paths_along_refractors < 0
+        ignore_mask = shallow_refractor_mask | negative_path_mask
+        undefined_traveltime = torch.maximum(refracted_traveltimes.max(), direct_traveltimes.max()) + 1
+        refracted_traveltimes = torch.where(ignore_mask, undefined_traveltime, refracted_traveltimes)
+
+        # Return minimum feasible traveltime for each trace
+        traveltimes = torch.column_stack([direct_traveltimes, refracted_traveltimes])
+        return traveltimes.min(axis=1)[0]
 
     # Dataset generation
 
@@ -335,7 +380,7 @@ class LayeredModel:
         loader = dataset.create_train_loader(batch_size=batch_size, n_epochs=n_epochs, shuffle=True, drop_last=True,
                                              device=self.device, bar=bar)
         for *params, target_traveltimes in loader:
-            prediction_traveltimes = self._estimate_traveltimes_by_indices(*params)
+            prediction_traveltimes = self._estimate_traveltimes(*params)
             loss = torch.abs(prediction_traveltimes - target_traveltimes).mean()
 
             # Calc regularization
@@ -373,11 +418,11 @@ class LayeredModel:
 
             # Enforce model constraints
             with torch.no_grad():
-                self.elevations_tensor.clamp_(max=self.surface_elevation_tensor.reshape(-1, 1))
+                self.elevations_tensor.clip_(max=self.surface_elevation_tensor.reshape(-1, 1))
                 self.elevations_tensor.data = torch.cummin(self.elevations_tensor, axis=1)[0]
-                self.slownesses_tensor.clamp_(min=0.01)
+                self.slownesses_tensor.clip_(min=0.01)
                 self.slownesses_tensor.data = torch.cummin(self.slownesses_tensor, axis=1)[0]
-                self.weathering_slowness_tensor.clamp_(min=self.slownesses_tensor[:, 0])
+                self.weathering_slowness_tensor.clip_(min=self.slownesses_tensor[:, 0])
 
             self.loss_hist.append(loss.item())
             self.velocities_reg_hist.append(velocities_reg)
@@ -389,7 +434,7 @@ class LayeredModel:
         loader = dataset.create_predict_loader(batch_size=batch_size, n_epochs=1, shuffle=False, drop_last=False,
                                                device=self.device, bar=bar)
         with torch.no_grad():
-            pred_traveltimes = [(self._estimate_traveltimes_by_indices(*params) - traveltime_corrections).cpu()
+            pred_traveltimes = [(self._estimate_traveltimes(*params) - traveltime_corrections).cpu()
                                 for *params, traveltime_corrections in loader]
         pred_traveltimes = torch.cat(pred_traveltimes)
         dataset.pred_traveltimes = pred_traveltimes
@@ -403,32 +448,24 @@ class LayeredModel:
 
     # Statics calculation
 
-    def _process_coords(self, coords):
-        coords = np.array(coords)
-        is_1d = coords.ndim == 1
-        coords = np.atleast_2d(coords)
-        if coords.ndim > 2 or coords.shape[1] not in {2, 3}:
-            raise ValueError
-        if coords.shape[1] == 2:
-            coords = np.column_stack([coords, self.grid.surface_elevation_interpolator(coords)])
-        return coords, is_1d
-
     @torch.no_grad()
     def estimate_delays(self, coords, intermediate_datum=None, intermediate_datum_refractor=None, final_datum=None,
                         replacement_velocity=None):
-        coords, is_1d = self._process_coords(coords)
+        # Interpolate layer elevations and thicknesses at given coords
+        coords, is_1d = self.process_coords(coords)
         indices, weights = self.grid.get_interpolation_params(coords[:, :2])
-        src_coords = torch.tensor(coords[:, :2], dtype=torch.float32, device=self.device)
-        src_elevations = torch.tensor(coords[:, -1], dtype=torch.float32, device=self.device)
+        elevations = torch.tensor(coords[:, -1], dtype=torch.float32, device=self.device)
         indices = torch.tensor(indices, dtype=torch.int32, device=self.device)
         weights = torch.tensor(weights, dtype=torch.float32, device=self.device)
-        slownesses, layer_elevations = self._get_params_by_indices(indices, weights)
+        layer_slownesses = self._interpolate_layer_slownesses(indices, weights)
+        layer_elevations = self._interpolate_layer_elevations(indices, weights)
 
+        # Get elevation of intermediate datum for each passed coordinate
         if intermediate_datum is None:
             if intermediate_datum_refractor is not None:
                 intermediate_elevations = layer_elevations[:, intermediate_datum_refractor - 1]
                 if replacement_velocity is None:
-                    replacement_velocity = 1000 / slownesses[:, intermediate_datum_refractor - 1]
+                    replacement_velocity = 1000 / layer_slownesses[:, intermediate_datum_refractor - 1]
             elif final_datum is not None:
                 intermediate_elevations = torch.tensor(final_datum, dtype=torch.float32, device=self.device)
                 final_datum = None
@@ -440,15 +477,18 @@ class LayeredModel:
             intermediate_elevations = torch.tensor(intermediate_datum, dtype=torch.float32, device=self.device)
         intermediate_elevations = torch.broadcast_to(intermediate_elevations, (len(coords),))
 
-        sign = torch.sign(src_elevations - intermediate_elevations)  # TODO: move inside _get_vertical_traveltimes
-        delays = sign * self._get_vertical_traveltimes(src_elevations, intermediate_elevations,
-                                                       layer_elevations, slownesses)
+        # Calculate delays from sensor locations to intermediate datum
+        sign = torch.sign(elevations - intermediate_elevations)
+        delays = sign * self._get_vertical_traveltimes(elevations, intermediate_elevations,
+                                                       layer_elevations, layer_slownesses)
+
+        # Add delays from intermediate to final datum
         if final_datum is not None:
             if replacement_velocity is None:
                 raise ValueError
             delays += 1000 * (intermediate_elevations - final_datum) / replacement_velocity
-        delays = delays.detach().cpu().numpy()
 
+        delays = delays.detach().cpu().numpy()
         if is_1d:
             return delays[0]
         return delays
