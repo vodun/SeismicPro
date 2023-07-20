@@ -6,7 +6,8 @@ from numba import njit, prange
 from tqdm.auto import tqdm
 
 from .dataloader import TensorDataLoader
-from ...utils import to_list
+from ..utils import get_uphole_correction_method
+from ...utils import to_list, align_args
 from ...const import HDR_FIRST_BREAK
 
 
@@ -51,21 +52,11 @@ class TravelTimeDataset:
     def has_predictions(self):
         return self.pred_traveltimes is not None
 
-    @staticmethod
-    def _get_uphole_correction_method(survey, uphole_correction_method):
-        if uphole_correction_method not in {"auto", "time", "depth", None}:
-            raise ValueError
-        if uphole_correction_method != "auto":
-            return uphole_correction_method
-        if not survey.is_uphole:
-            return None
-        return "time" if "SourceUpholeTime" in survey.available_headers else "depth"
-
     def _process_survey_uphole_correction_method(self, survey, uphole_correction_method):
         source_elevations = survey["SourceSurfaceElevation"]
         true_traveltimes = survey[self.first_breaks_header]
         target_traveltimes = true_traveltimes
-        uphole_correction_method = self._get_uphole_correction_method(survey, uphole_correction_method)
+        uphole_correction_method = get_uphole_correction_method(survey, uphole_correction_method)
         if uphole_correction_method == "time":
             traveltime_corrections = survey["SourceUpholeTime"]
             target_traveltimes = target_traveltimes + traveltime_corrections
@@ -78,12 +69,7 @@ class TravelTimeDataset:
                 traveltime_corrections, uphole_correction_method)
 
     def set_uphole_correction_method(self, uphole_correction_method):
-        uphole_correction_method_list = to_list(uphole_correction_method)
-        if len(uphole_correction_method_list) == 1:
-            uphole_correction_method_list = uphole_correction_method_list * len(self.survey_list)
-        if len(uphole_correction_method_list) != len(self.survey_list):
-            raise ValueError
-
+        _, uphole_correction_method_list = align_args(self.survey_list, uphole_correction_method)
         res = [self._process_survey_uphole_correction_method(survey, uphole_correction_method)
                for survey, uphole_correction_method in zip(self.survey_list, uphole_correction_method_list)]
         res = list(zip(*res))

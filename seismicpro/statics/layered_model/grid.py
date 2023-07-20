@@ -173,6 +173,7 @@ class SpatialGrid:
                                min_relative_weight=min_relative_weight)
 
     def get_interpolation_params(self, coords):
+        # pylint: disable-next=protected-access
         return self.surface_elevation_interpolator._get_reference_indices_neighbors(coords)
 
     def interpolate(self, values, coords):

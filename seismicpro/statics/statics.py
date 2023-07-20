@@ -56,7 +56,7 @@ class Statics:
             statics_map = self.receiver_map
         else:
             raise ValueError("Unknown by")
-        
+
         if interactive:
             index_cols = statics_map.index_cols if len(self.survey_list) == 1 else statics_map.index_cols[1:]
             survey_list = [sur.reindex(index_cols) for sur in self.survey_list]
