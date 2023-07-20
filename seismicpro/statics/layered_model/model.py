@@ -44,13 +44,14 @@ class LayeredModel:
         if slownesses.shape[1] != elevations.shape[1] + 1:
             raise ValueError
 
-        # Convert model parameters to torch tensors
+        # Convert model parameters to torch tensors and enforce model constraints
         common_kwargs = {"dtype": torch.float32, "device": device}
         self.device = device
         self.weathering_slowness_tensor = torch.tensor(slownesses[:, 0], requires_grad=True, **common_kwargs)
         self.slownesses_tensor = torch.tensor(slownesses[:, 1:], requires_grad=True, **common_kwargs)
         self.surface_elevation_tensor = torch.tensor(grid.surface_elevations, **common_kwargs)
         self.elevations_tensor = torch.tensor(elevations, requires_grad=True, **common_kwargs)
+        self.enforce_constraints()
 
         # Define default optimization-related attributes
         self.optimizer = torch.optim.Adam([
@@ -401,6 +402,22 @@ class LayeredModel:
     #     self.neighbors_indices = torch.tensor(neighbors_indices, dtype=torch.int32, device=device)
     #     self.neighbors_weights = torch.tensor(neighbors_weights, dtype=torch.float32, device=device)
 
+    @torch.no_grad()
+    def enforce_constraints(self):
+        self.weathering_slowness_tensor.clip_(min=0.01)
+        if self.n_refractors == 0:
+            return
+
+        self.elevations_tensor.clip_(max=self.surface_elevation_tensor.reshape(-1, 1))
+        if self.n_refractors > 1:
+            self.elevations_tensor.data = torch.cummin(self.elevations_tensor, axis=1)[0]
+
+        self.slownesses_tensor.clip_(min=0.01)
+        if self.n_refractors > 1:
+            self.slownesses_tensor.data = torch.cummin(self.slownesses_tensor, axis=1)[0]
+
+        self.weathering_slowness_tensor.clip_(min=self.slownesses_tensor[:, 0])
+
     def fit(self, dataset, batch_size=250000, n_epochs=5, elevations_reg_coef=0.5, thicknesses_reg_coef=0.5,
             velocities_reg_coef=1, bar=True):
         elevations_reg_coef = torch.tensor(elevations_reg_coef, dtype=torch.float32, device=self.device)
@@ -448,14 +465,7 @@ class LayeredModel:
             total_loss.backward()
             self.optimizer.step()
             self.scheduler.step(total_loss.item())
-
-            # Enforce model constraints
-            with torch.no_grad():
-                self.elevations_tensor.clip_(max=self.surface_elevation_tensor.reshape(-1, 1))
-                self.elevations_tensor.data = torch.cummin(self.elevations_tensor, axis=1)[0]
-                self.slownesses_tensor.clip_(min=0.01)
-                self.slownesses_tensor.data = torch.cummin(self.slownesses_tensor, axis=1)[0]
-                self.weathering_slowness_tensor.clip_(min=self.slownesses_tensor[:, 0])
+            self.enforce_constraints()
 
             self.loss_hist.append(loss.item())
             self.velocities_reg_hist.append(velocities_reg)
