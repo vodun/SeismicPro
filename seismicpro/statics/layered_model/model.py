@@ -254,24 +254,42 @@ class LayeredModel:
         traveltimes = (vertical_pass_dist * layer_slownesses).sum(axis=1)
         return traveltimes
 
-    # args = (source_layers, source_elevations, source_layer_slownesses, source_layer_elevations,
-    #         receiver_layers, receiver_elevations, receiver_layer_slownesses, receiver_layer_elevations,
-    #         offsets, mean_layer_slownesses)
     @classmethod
-    def _estimate_direct_traveltimes(cls, shots_layers, shots_elevations, shots_slownesses, shots_layer_elevations,
-                                     receivers_layers, receivers_elevations, receivers_slownesses, receivers_layer_elevations,
-                                     offsets, mean_slownesses):
-        batch_size = len(shots_elevations)
-        max_layer = torch.maximum(shots_layers, receivers_layers)
-        padded_shots_elevations = torch.column_stack([shots_elevations, shots_layer_elevations])
-        shots_last_elevation = torch.minimum(shots_elevations, padded_shots_elevations[torch.arange(batch_size), max_layer])
-        padded_receivers_elevations = torch.column_stack([receivers_elevations, receivers_layer_elevations])
-        receivers_last_elevation = torch.minimum(receivers_elevations, padded_receivers_elevations[torch.arange(batch_size), max_layer])
-        max_layer_dist = torch.sqrt(offsets**2 + (receivers_last_elevation - shots_last_elevation)**2)
-        max_layer_traveltime = max_layer_dist * mean_slownesses[torch.arange(batch_size), max_layer]
-        shots_correction = cls._estimate_vertical_traveltimes(shots_elevations, shots_last_elevation, shots_slownesses, shots_layer_elevations)
-        receivers_correction = cls._estimate_vertical_traveltimes(receivers_elevations, receivers_last_elevation, receivers_slownesses, receivers_layer_elevations)
-        return max_layer_traveltime + shots_correction + receivers_correction
+    def _project_to_target_layers(cls, sensor_elevations, sensor_layers, target_layers,
+                                  layer_slownesses, layer_elevations):
+        projected_layer_ix = torch.where(target_layers > sensor_layers, target_layers - 1, target_layers)
+        projected_layer_ix = torch.clip(projected_layer_ix, max=layer_elevations.shape[1] - 1).reshape(-1, 1)
+        projected_elevations = torch.gather(layer_elevations, index=projected_layer_ix, axis=1).reshape(-1)
+        projected_elevations = torch.where(sensor_layers == target_layers, sensor_elevations, projected_elevations)
+        projection_times = cls._estimate_vertical_traveltimes(sensor_elevations, projected_elevations,
+                                                              layer_slownesses, layer_elevations)
+        return projected_elevations, projection_times
+
+    @classmethod
+    def _estimate_direct_traveltimes(cls, source_layers, source_elevations, source_layer_slownesses,
+                                     source_layer_elevations, receiver_layers, receiver_elevations,
+                                     receiver_layer_slownesses, receiver_layer_elevations, offsets,
+                                     mean_layer_slownesses):
+        # Project each source and receiver to the deepest layer for each trace
+        max_layers = torch.maximum(source_layers, receiver_layers)
+        source_projections = cls._project_to_target_layers(source_elevations, source_layers, max_layers,
+                                                           source_layer_slownesses, source_layer_elevations)
+        projected_source_elevations, projection_source_times = source_projections
+        receiver_projections = cls._project_to_target_layers(receiver_elevations, receiver_layers, max_layers,
+                                                             receiver_layer_slownesses, receiver_layer_elevations)
+        projected_receiver_elevations, projection_receiver_times = receiver_projections
+
+        # Calculate distances passed by direct waves in the deepest layer and mean wave slownesses
+        squared_direct_lens = offsets**2 + (projected_receiver_elevations - projected_source_elevations)**2
+        direct_lens = torch.sqrt(torch.clip(squared_direct_lens, min=0.01))
+        direct_slownesses = torch.gather(mean_layer_slownesses, index=max_layers.reshape(-1, 1), axis=1).reshape(-1)
+
+        # Calculate an approximation of direct traveltimes as a sum of direct traveltimes in the deepest layer and
+        # total vertical correction due to source/receiver projection. This approximation is exact if and only if
+        # both source and receiver belong to the same layer.
+        vertical_traveltimes = projection_source_times + projection_receiver_times
+        direct_traveltimes = direct_lens * direct_slownesses + vertical_traveltimes
+        return direct_traveltimes
 
     @staticmethod
     def _weight_tensor(tensor, indices, weights):
@@ -297,9 +315,9 @@ class LayeredModel:
 
         # Return direct traveltimes in case of a single-layer model
         if self.n_layers == 1:
-            squared_ray_lens = offsets**2 + (receiver_elevations - source_elevations)**2
-            ray_lens = torch.sqrt(torch.clip(squared_ray_lens, min=0.01)) # Avoid nans during backward
-            return ray_lens * mean_layer_slownesses[:, 0]
+            squared_direct_lens = offsets**2 + (receiver_elevations - source_elevations)**2
+            direct_lens = torch.sqrt(torch.clip(squared_direct_lens, min=0.01))  # Clip to avoid nans during backward
+            return direct_lens * mean_layer_slownesses[:, 0]
 
         # Interpolate layer slownesses and elevations at source and receiver locations
         source_layer_slownesses = self._interpolate_layer_slownesses(source_indices, source_weights)
