@@ -133,7 +133,7 @@ class SpatialGrid:
         coords_range = [coords.select(pl.min("CDP_X").alias("x_min"), pl.min("CDP_Y").alias("y_min"),
                                       pl.max("CDP_X").alias("x_max"), pl.max("CDP_Y").alias("y_max"))
                         for coords in bin_coords]
-        coords_range = pl.concat(coords_range).select(pl.min("x_min", "y_min"), pl.max("x_max", "y_max"))
+        coords_range = pl.concat(coords_range).select(pl.col("x_min", "y_min").min(), pl.col("x_max", "y_max").max())
         x_min, y_min, x_max, y_max = coords_range.collect().row(0)
 
         x_range = np.arange(x_min, x_max, grid_size[0])
