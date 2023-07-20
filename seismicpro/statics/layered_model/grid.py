@@ -110,7 +110,7 @@ class SpatialGrid:
         return IDWInterpolator(coords, elevations, neighbors=n_interpolation_neighbors)
 
     @classmethod
-    def from_sensors(cls, survey, filter_azimuths=True, n_interpolation_neighbors=1):
+    def from_sensors(cls, survey, filter_azimuths=False, n_interpolation_neighbors=1):
         coords, elevations = cls._get_sensor_locations(survey, filter_azimuths=filter_azimuths)
         return cls(coords, elevations, survey=survey, n_interpolation_neighbors=n_interpolation_neighbors)
 

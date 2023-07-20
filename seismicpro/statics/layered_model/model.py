@@ -8,7 +8,7 @@ from .profile_plot import ProfilePlot
 from ..statics import Statics
 from ...survey import Survey
 from ...metrics import MetricMap
-from ...utils import to_list, get_first_defined
+from ...utils import to_list, get_first_defined, IDWInterpolator
 from ...const import HDR_FIRST_BREAK
 
 
@@ -381,27 +381,6 @@ class LayeredModel:
 
     # Model fitting and inference
 
-    # def ...():
-    #         # smoothing_interpolator = IDWInterpolator(self.coords, neighbors=n_smoothing_neighbors + 1)
-    #     # neighbors_dist, neighbors_indices = self.coords_tree.query(self.coords, k=np.arange(2, n_smoothing_neighbors + 2), workers=-1)
-    #     # neighbors_weights = smoothing_interpolator._distances_to_weights(neighbors_dist)
-    #     # self.neighbors_indices = torch.tensor(neighbors_indices[:, 1:], dtype=torch.int32, device=device)
-    #     # self.neighbors_weights = torch.tensor(neighbors_weights[:, 1:], dtype=torch.float32, device=device)
-        
-    #     # Fit nearest neighbors
-    #     tree = KDTree(self.coords)
-    #     # TODO: handle n_smoothing_neighbors == 0
-    #     neighbors_dists, neighbors_indices = tree.query(self.coords, k=np.arange(2, n_smoothing_neighbors + 2), workers=-1)
-    #     neighbors_dists **= 2
-    #     zero_mask = np.isclose(neighbors_dists, 0)
-    #     neighbors_dists[zero_mask] = 1  # suppress division by zero warning
-    #     neighbors_weights = 1 / neighbors_dists
-    #     neighbors_weights[zero_mask.any(axis=1)] = 0
-    #     neighbors_weights[zero_mask] = 1
-    #     neighbors_weights /= neighbors_weights.sum(axis=1, keepdims=True)
-    #     self.neighbors_indices = torch.tensor(neighbors_indices, dtype=torch.int32, device=device)
-    #     self.neighbors_weights = torch.tensor(neighbors_weights, dtype=torch.float32, device=device)
-
     @torch.no_grad()
     def enforce_constraints(self):
         self.weathering_slowness_tensor.clip_(min=0.01)
@@ -418,49 +397,81 @@ class LayeredModel:
 
         self.weathering_slowness_tensor.clip_(min=self.slownesses_tensor[:, 0])
 
-    def fit(self, dataset, batch_size=250000, n_epochs=5, elevations_reg_coef=0.5, thicknesses_reg_coef=0.5,
-            velocities_reg_coef=1, bar=True):
+    def prepare_regularization_tensors(self, n_reg_neighbors=32,  velocities_reg_coef=1, elevations_reg_coef=0.5,
+                                       thicknesses_reg_coef=0.5):
+        if n_reg_neighbors is None or n_reg_neighbors == 0:
+            return None, None, None, None, None
+
+        velocities_reg_coef = torch.tensor(velocities_reg_coef, dtype=torch.float32, device=self.device)
+        velocities_reg_coef = torch.broadcast_to(velocities_reg_coef, (self.n_layers,))
         elevations_reg_coef = torch.tensor(elevations_reg_coef, dtype=torch.float32, device=self.device)
         elevations_reg_coef = torch.broadcast_to(elevations_reg_coef, (self.n_refractors,))
         thicknesses_reg_coef = torch.tensor(thicknesses_reg_coef, dtype=torch.float32, device=self.device)
         thicknesses_reg_coef = torch.broadcast_to(thicknesses_reg_coef, (self.n_refractors,))
-        velocities_reg_coef = torch.tensor(velocities_reg_coef, dtype=torch.float32, device=self.device)
-        velocities_reg_coef = torch.broadcast_to(velocities_reg_coef, (self.n_refractors + 1,))
 
+        idw = IDWInterpolator(self.coords, neighbors=n_reg_neighbors + 1)
+        neighbors_dist, neighbors_indices = idw.nearest_neighbors.query(self.coords, k=idw.neighbors[1:], workers=-1)
+        neighbors_weights = idw._distances_to_weights(neighbors_dist)
+        neighbors_indices = torch.tensor(neighbors_indices, dtype=torch.int32, device=self.device)
+        neighbors_weights = torch.tensor(neighbors_weights, dtype=torch.float32, device=self.device)
+
+        return neighbors_indices, neighbors_weights, velocities_reg_coef, elevations_reg_coef, thicknesses_reg_coef
+
+    def calculate_regularizer(self, source_indices, source_weights, receiver_indices, receiver_weights,
+                              neighbors_indices, neighbors_weights, velocities_reg_coef, elevations_reg_coef,
+                              thicknesses_reg_coef):
+        if neighbors_indices is None:
+            velocities_reg = torch.tensor(0, dtype=torch.float32, device=self.device)
+            elevations_reg = torch.tensor(0, dtype=torch.float32, device=self.device)
+            thicknesses_reg = torch.tensor(0, dtype=torch.float32, device=self.device)
+            return velocities_reg, elevations_reg, thicknesses_reg
+
+        valid_source_indices = source_indices[source_weights > 0]
+        valid_source_mask = torch.bincount(valid_source_indices, minlength=self.n_coords) > 0
+        valid_receiver_indices = receiver_indices[receiver_weights > 0]
+        valid_receiver_mask = torch.bincount(valid_receiver_indices, minlength=self.n_coords) > 0
+        valid_sensor_mask = valid_source_mask | valid_receiver_mask
+        neighbors_indices = neighbors_indices[valid_sensor_mask]
+        neighbors_weights = neighbors_weights[valid_sensor_mask][..., None]
+
+        velocities = 1000 / torch.column_stack([self.weathering_slowness_tensor, self.slownesses_tensor])
+        sensor_velocities = velocities[valid_sensor_mask]
+        interp_velocities = (neighbors_weights * velocities[neighbors_indices]).sum(axis=1)
+        velocities_err = torch.abs(sensor_velocities - interp_velocities) / sensor_velocities
+        velocities_reg = (velocities_err * velocities_reg_coef).mean()
+
+        sensor_elevations = self.elevations_tensor[valid_sensor_mask]
+        interp_elevations = (neighbors_weights * self.elevations_tensor[neighbors_indices]).sum(axis=1)
+        elevations_err = torch.abs(sensor_elevations - interp_elevations)
+        elevations_reg = (elevations_err * elevations_reg_coef).mean()
+
+        thicknesses = -torch.diff(self.elevations_tensor, prepend=self.surface_elevation_tensor.reshape(-1, 1), axis=1)
+        sensor_thicknesses = thicknesses[valid_sensor_mask]
+        interp_thicknesses = (neighbors_weights * thicknesses[neighbors_indices]).sum(axis=1)
+        thicknesses_err = torch.abs(sensor_thicknesses - interp_thicknesses)
+        thicknesses_reg = (thicknesses_err * thicknesses_reg_coef).mean()
+
+        return velocities_reg, elevations_reg, thicknesses_reg
+
+    def fit(self, dataset, batch_size=250000, n_epochs=5, n_reg_neighbors=32, velocities_reg_coef=1,
+            elevations_reg_coef=0.5, thicknesses_reg_coef=0.5, bar=True):
+        reg_tensors = self.prepare_regularization_tensors(n_reg_neighbors, velocities_reg_coef, elevations_reg_coef,
+                                                          thicknesses_reg_coef)
         loader = dataset.create_train_loader(batch_size=batch_size, n_epochs=n_epochs, shuffle=True, drop_last=True,
                                              device=self.device, bar=bar)
         for *params, target_traveltimes in loader:
             prediction_traveltimes = self._estimate_traveltimes(*params)
             loss = torch.abs(prediction_traveltimes - target_traveltimes).mean()
 
-            # Calc regularization
-            velocities_reg = 0
-            elevations_reg = 0
-            thicknesses_reg = 0
-            # valid_source_indices = source_indices[source_weights > 0.1]
-            # valid_receiver_indices = receiver_indices[receiver_weights > 0.1]
-            # unique_batch_indices = torch.unique(torch.cat([valid_source_indices, valid_receiver_indices]), sorted=False)
-            # neighbors_indices = self.neighbors_indices[unique_batch_indices]
-            # neighbors_weights = self.neighbors_weights[unique_batch_indices][..., None]
+            # Calculate regularization term
+            source_indices = params[2]
+            source_weights = params[3]
+            receiver_indices = params[6]
+            receiver_weights = params[7]
+            sensor_tensors = (source_indices, source_weights, receiver_indices, receiver_weights)
+            velocities_reg, elevations_reg, thicknesses_reg = self.calculate_regularizer(*sensor_tensors, *reg_tensors)
 
-            # velocities = 1000 / torch.column_stack([self.weathering_slowness_tensor, self.slownesses_tensor])
-            # batch_velocities = velocities[unique_batch_indices]
-            # interp_velocities = (neighbors_weights * velocities[neighbors_indices]).sum(axis=1)
-            # velocities_err = torch.abs(batch_velocities - interp_velocities) / velocities.mean(axis=0)
-            # velocities_reg = (velocities_err * velocities_reg_coef).mean()
-
-            # batch_elevations = self.elevations_tensor[unique_batch_indices]
-            # interp_elevations = (neighbors_weights * self.elevations_tensor[neighbors_indices]).sum(axis=1)
-            # elevations_err = torch.abs(batch_elevations - interp_elevations)
-            # elevations_reg = (elevations_err * elevations_reg_coef).mean()
-
-            # thicknesses = -torch.diff(torch.column_stack([self.surface_elevation_tensor, self.elevations_tensor]), axis=1)
-            # batch_thicknesses = thicknesses[unique_batch_indices]
-            # interp_thicknesses = (neighbors_weights * thicknesses[neighbors_indices]).sum(axis=1)
-            # thicknesses_err = torch.abs(batch_thicknesses - interp_thicknesses)
-            # thicknesses_reg = (thicknesses_err * thicknesses_reg_coef).mean()
-
-            total_loss = loss + velocities_reg + elevations_reg + thicknesses_reg
+            total_loss = loss + elevations_reg + thicknesses_reg + velocities_reg
             self.optimizer.zero_grad()
             total_loss.backward()
             self.optimizer.step()
@@ -468,9 +479,9 @@ class LayeredModel:
             self.enforce_constraints()
 
             self.loss_hist.append(loss.item())
-            self.velocities_reg_hist.append(velocities_reg)
-            self.elevations_reg_hist.append(elevations_reg)
-            self.thicknesses_reg_hist.append(thicknesses_reg)
+            self.velocities_reg_hist.append(velocities_reg.item())
+            self.elevations_reg_hist.append(elevations_reg.item())
+            self.thicknesses_reg_hist.append(thicknesses_reg.item())
 
     def predict(self, dataset, batch_size=1000000, bar=True, store_to_survey=True,
                 predicted_first_breaks_header="PredictedFirstBreak"):
