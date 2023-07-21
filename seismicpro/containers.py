@@ -91,6 +91,10 @@ class TraceContainer:
         """bool: Whether no traces are stored in the container."""
         return self.n_traces == 0
 
+    def get_polars_headers(self):
+        """Return trace headers as a `polars.DataFrame`. The index is transformed into individual columns."""
+        return pl.from_pandas(self.headers, rechunk=False, include_index=True)
+
     def __getitem__(self, key):
         """Select values of trace headers by their names and return them as a `np.ndarray`. Unlike `pandas` indexing
         allows for selection of headers the container is indexed by. The returned array will be 1d if a single header

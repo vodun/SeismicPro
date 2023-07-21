@@ -450,10 +450,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         trace statistics if they were calculated."""
         print(self)
 
-    def get_polars_headers(self):
-        """Return survey trace headers as a `polars.DataFrame`. The index is transformed into individual columns."""
-        return pl.from_pandas(self.headers, rechunk=False, include_index=True)
-
     def set_source_id_cols(self, cols, validate=True):
         """Set new trace headers that uniquely identify a seismic source and optionally validate consistency of
         source-related trace headers by checking that each source has unique coordinates, surface elevation, uphole

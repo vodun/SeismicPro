@@ -1,7 +1,6 @@
 import warnings
 
 import numpy as np
-import pandas as pd
 import polars as pl
 import matplotlib.pyplot as plt
 import torch
@@ -11,7 +10,6 @@ from .profile_plot import ProfilePlot
 from ..statics import Statics
 from ..utils import get_uphole_correction_method
 from ...survey import Survey
-from ...metrics import MetricMap
 from ...utils import to_list, align_args, IDWInterpolator
 from ...const import HDR_FIRST_BREAK
 
@@ -562,10 +560,10 @@ class LayeredModel:
         non_index_cols = list(all_cols_set - set(index_cols))
 
         statics = pl.from_pandas(survey.get_headers(all_cols), rechunk=False)
-        is_duplicated_expr = pl.all_horizontal([pl.n_unique(col) == 1 for col in non_index_cols]).alias("is_unique")
+        is_duplicated_expr = pl.all_horizontal([pl.n_unique(col) == 1 for col in non_index_cols]).alias("IsUnique")
         statics = statics.groupby(index_cols).agg(pl.mean(non_index_cols), is_duplicated_expr).to_pandas()
 
-        if not statics["is_unique"].all():
+        if not statics["IsUnique"].all():
             warnings.warn("Some sources have non-unique locations or uphole data. "
                           "Calculated statics may be inaccurate.")
 
@@ -588,10 +586,10 @@ class LayeredModel:
         non_index_cols = list(all_cols_set - set(index_cols))
 
         statics = pl.from_pandas(survey.get_headers(all_cols), rechunk=False)
-        is_duplicated_expr = pl.all_horizontal([pl.n_unique(col) == 1 for col in non_index_cols]).alias("is_unique")
+        is_duplicated_expr = pl.all_horizontal([pl.n_unique(col) == 1 for col in non_index_cols]).alias("IsUnique")
         statics = statics.groupby(index_cols).agg(pl.mean(non_index_cols), is_duplicated_expr).to_pandas()
 
-        if not statics["is_unique"].all():
+        if not statics["IsUnique"].all():
             warnings.warn("Some receivers have non-unique locations. Calculated statics may be inaccurate.")
 
         receiver_coords = statics[["GroupX", "GroupY", "ReceiverGroupElevation"]].to_numpy()
@@ -644,35 +642,7 @@ class LayeredModel:
         survey = survey_list[0] if is_single_survey else survey_list
         source_delays = source_delays_list[0] if is_single_survey else source_delays_list
         receiver_delays = receiver_delays_list[0] if is_single_survey else receiver_delays_list
-        return survey, source_delays, source_id_cols, receiver_delays, receiver_id_cols
-        # return Statics(survey, source_delays, source_id_cols, receiver_delays, receiver_id_cols)
-
-        # add_part = len(survey_list) > 1
-        # source_delays_list = []
-        # receiver_delays_list = []
-        # for i, survey in enumerate(survey_list):
-        #     source_delays = self._get_source_delays(survey, source_id_cols, uphole_correction_method,
-        #                                             **estimate_delays_kwargs)
-        #     receiver_delays = self._get_receiver_delays(survey, receiver_id_cols, **estimate_delays_kwargs)
-        #     if add_part:
-        #         source_delays.insert(0, "Part", i)
-        #         receiver_delays.insert(0, "Part", i)
-        #     source_delays_list.append(source_delays)
-        #     receiver_delays_list.append(receiver_delays)
-        # source_delays = pd.concat(source_delays_list, ignore_index=True, copy=False)
-        # receiver_delays = pd.concat(receiver_delays_list, ignore_index=True, copy=False)
-        # source_id_cols = to_list(source_id_cols)
-        # if add_part:
-        #     source_id_cols = ["Part"] + source_id_cols
-        # receiver_id_cols = to_list(receiver_id_cols)
-        # if add_part:
-        #     receiver_id_cols = ["Part"] + receiver_id_cols
-
-        # source_map = MetricMap(source_delays[["SourceX", "SourceY"]], source_delays["Delay"], index=source_delays[source_id_cols])
-        # corrected_source_map = MetricMap(source_delays[["SourceX", "SourceY"]], source_delays["SurfaceDelay"], index=source_delays[source_id_cols])
-        # receiver_map = MetricMap(receiver_delays[["GroupX", "GroupY"]], receiver_delays["Delay"], index=receiver_delays[receiver_id_cols])
-        # survey_list = survey_list[0] if is_single_survey else survey_list
-        # return Statics(survey_list, source_map, receiver_map, corrected_source_map)
+        return Statics(survey, source_delays, source_id_cols, receiver_delays, receiver_id_cols)
 
     # Model visualization
 
