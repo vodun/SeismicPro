@@ -642,7 +642,7 @@ class LayeredModel:
         survey = survey_list[0] if is_single_survey else survey_list
         source_delays = source_delays_list[0] if is_single_survey else source_delays_list
         receiver_delays = receiver_delays_list[0] if is_single_survey else receiver_delays_list
-        return Statics(survey, source_delays, source_id_cols, receiver_delays, receiver_id_cols)
+        return Statics(survey, source_delays, source_id_cols, receiver_delays, receiver_id_cols, validate=False)
 
     # Model visualization
 

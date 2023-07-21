@@ -7,7 +7,7 @@ from ..utils import to_list, align_args
 
 
 class Statics:
-    def __init__(self, survey, source_delays, source_id_cols, receiver_delays, receiver_id_cols):
+    def __init__(self, survey, source_delays, source_id_cols, receiver_delays, receiver_id_cols, validate=True):
         self.is_single_survey = isinstance(survey, Survey)
         self.survey_list = to_list(survey)
 
@@ -20,6 +20,37 @@ class Statics:
         self.receiver_delays_list = to_list(receiver_delays)
         if len(self.receiver_delays_list) != len(self.survey_list):
             raise ValueError
+
+        if validate:
+            self.validate_statics()
+
+    def _validate_survey_statics(self, survey, source_delays, receiver_delays):
+        survey_headers_lazy = survey.get_polars_headers().lazy()
+        source_delays_lazy = pl.from_pandas(source_delays, rechunk=False).lazy()
+        receiver_delays_lazy = pl.from_pandas(receiver_delays, rechunk=False).lazy()
+
+        expr_list = [
+            survey_headers_lazy.select(self.source_id_cols).unique(),
+            source_delays_lazy.select(self.source_id_cols).unique(),
+            survey_headers_lazy.select(self.receiver_id_cols).unique(),
+            receiver_delays_lazy.select(self.receiver_id_cols).unique(),
+        ]
+        unique_sources, unique_delay_sources, unique_receivers, unique_delay_receivers = pl.collect_all(expr_list)
+
+        if len(unique_delay_sources) != len(source_delays):
+            raise ValueError("Source statics contain sources with duplicated indices")
+        if len(unique_sources.join(unique_delay_sources, on=self.source_id_cols)) != len(unique_sources):
+            warnings.warn("Source statics miss some sources from the survey. Their statics will be set to 0")
+
+        if len(unique_delay_receivers) != len(unique_receivers):
+            raise ValueError("Receiver statics contain receivers with duplicated indices")
+        if len(unique_sources.join(unique_delay_sources, on=self.source_id_cols)) != len(unique_sources):
+            warnings.warn("Receiver statics miss some receivers from the survey. Their statics will be set to 0")
+
+    def validate_statics(self):
+        data_iterator = zip(self.survey_list, self.source_delays_list, self.receiver_delays_list)
+        for survey, source_delays, receiver_delays in data_iterator:
+            self._validate_survey_statics(survey, source_delays, receiver_delays)
 
         # ------------------------------------------------------------------------------
 
@@ -62,32 +93,26 @@ class Statics:
     # Statics application
 
     def _apply_to_container(self, container, source_statics, receiver_statics, statics_header="Statics"):
-        pl_headers = container.get_polars_headers()
-        loaded_headers = pl_headers.columns
+        container_headers = container.get_polars_headers()
+        loaded_headers = container_headers.columns
         indexed_by = container.indexed_by
 
         source_id_cols = to_list(self.source_id_cols)
         source_statics = pl.from_pandas(source_statics, rechunk=False)
         source_statics = source_statics.select(*source_id_cols, pl.col("Delay").alias("_SourceDelay"))
-        pl_headers = pl_headers.join(source_statics, how="left", on=source_id_cols)
-        if len(pl_headers) != container.n_traces:
-            warnings.warn("Source statics contain sources with duplicated indices")
-        if pl_headers.select("_SourceDelay").null_count().item():
-            pl_headers = pl_headers.with_columns(pl.col("_SourceDelay").fill_null(0))
-            warnings.warn("Source statics miss some sources from the container. Their statics is set to 0")
+        container_headers = container_headers.join(source_statics, how="left", on=source_id_cols)
+        if container_headers.select("_SourceDelay").null_count().item():
+            container_headers = container_headers.with_columns(pl.col("_SourceDelay").fill_null(0))
 
         receiver_id_cols = to_list(self.receiver_id_cols)
         receiver_statics = pl.from_pandas(receiver_statics, rechunk=False)
         receiver_statics = receiver_statics.select(*receiver_id_cols, pl.col("Delay").alias("_ReceiverDelay"))
-        pl_headers = pl_headers.join(receiver_statics, how="left", on=receiver_id_cols)
-        if len(pl_headers) != container.n_traces:
-            warnings.warn("Receiver statics contain receivers with duplicated indices")
-        if pl_headers.select("_ReceiverDelay").null_count().item():
-            pl_headers = pl_headers.with_columns(pl.col("_ReceiverDelay").fill_null(0))
-            warnings.warn("Receiver statics miss some receivers from the container. Their statics is set to 0")
+        container_headers = container_headers.join(receiver_statics, how="left", on=receiver_id_cols)
+        if container_headers.select("_ReceiverDelay").null_count().item():
+            container_headers = container_headers.with_columns(pl.col("_ReceiverDelay").fill_null(0))
 
         delay_expr = (pl.col("_SourceDelay") + pl.col("_ReceiverDelay")).alias(statics_header)
-        headers = pl_headers.select(*loaded_headers, delay_expr).to_pandas()
+        headers = container_headers.select(*loaded_headers, delay_expr).to_pandas()
         headers.set_index(indexed_by, inplace=True)
 
         statics_container = container.copy(ignore="headers")
