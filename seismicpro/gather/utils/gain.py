@@ -76,8 +76,9 @@ def apply_agc(data, window_size=125, use_rms_mode=True):
         # Extrapolate last AGC coef for trace indices after end
         data_res[i, end:] = coef * data[i, end:]
         coefs[i, end:] = coef
-
-    return data_res, coefs
+    # Change data inplace to unify with other gain methods
+    data = data_res
+    return data, coefs
 
 
 @njit(parallel=True, nogil=True)
@@ -96,10 +97,9 @@ def undo_agc(data, coefs):
     data : 2d array
         Gather data without AGC.
     """
-    new_data = np.empty_like(data)
     for i in prange(data.shape[0]):  # pylint: disable=not-an-iterable
-        new_data[i] = data[i] / coefs[i]
-    return new_data
+        data[i] /= coefs[i]
+    return data
 
 
 @njit(nogil=True, parallel=True)

@@ -544,6 +544,8 @@ class SeismicBatch(Batch):
         """
         src_list, dst_list = align_src_dst(src, dst)
         dst_coefs_list = to_list(dst_coefs)
+        if len(dst_coefs_list) != len(dst_list):
+            raise ValueError("dst_coefs and dst should have the same length.")
 
         # pylint: disable-next=redefined-argument-from-local
         for src, dst_coef, dst in zip_longest(src_list, dst_coefs_list, dst_list):
