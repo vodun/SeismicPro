@@ -41,43 +41,52 @@ def apply_agc(data, window_size=125, use_rms_mode=True):
     # AGC coefficients before start and after end are extrapolated.
     start, end = win_left, trace_len - win_right
 
-    data_res = np.empty_like(data)
     coefs = np.empty_like(data)
     for i in prange(n_traces):  # pylint: disable=not-an-iterable
-        # Calculate AGC coef for the first window
+
+        win_amps = np.empty(window_size, dtype=np.float32)
+        win_counts = np.empty(window_size, dtype=np.int32)
         win_sum = np.float64(0)
         win_count = 0
+        # Calculate AGC coef for the first window
         for j in range(window_size):
             amp, non_zero = process_amp(data[i, j], use_rms_mode)
             win_count += non_zero
             win_sum += amp
+            win_amps[j] = amp
+            win_counts[j] = non_zero
+
         coef = win_count / (win_sum + 1e-15)
         if use_rms_mode:
             coef = np.sqrt(coef)
         # Extrapolate first AGC coef for trace indices before start
-        data_res[i, : start + 1] = coef * data[i, : start + 1]
+        data[i, : start + 1] = coef * data[i, : start + 1]
         coefs[i, : start + 1] = coef
 
         # Move the window by one trace element and recalculate the AGC coef
         for j in range(start + 1, end):
-            amp, non_zero = process_amp(data[i, j + win_right - 1], use_rms_mode)
+            # Drop processed amplitude for trace element outside the current window position
+            drop_ix = (j - win_left - 1) % window_size
+            win_count -= win_counts[drop_ix]
+            win_sum -= win_amps[drop_ix]
+
+            # Save processed amplitude from the next trace element
+            next_ix = j + win_right - 1
+            amp, non_zero = process_amp(data[i, next_ix], use_rms_mode)
             win_count += non_zero
             win_sum += amp
-
-            amp, non_zero = process_amp(data[i, j - win_left - 1], use_rms_mode)
-            win_count -= non_zero
-            win_sum -= amp
+            win_amps[next_ix % window_size] = amp
+            win_counts[next_ix % window_size] = non_zero
 
             coef = win_count / (win_sum + 1e-15)
             if use_rms_mode:
                 coef = np.sqrt(coef)
-            data_res[i, j] = coef * data[i, j]
+            data[i, j] = coef * data[i, j]
             coefs[i, j] = coef
         # Extrapolate last AGC coef for trace indices after end
-        data_res[i, end:] = coef * data[i, end:]
+        data[i, end:] = coef * data[i, end:]
         coefs[i, end:] = coef
-    # Change data inplace to unify with other gain methods
-    data = data_res
+
     return data, coefs
 
 
