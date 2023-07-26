@@ -5,9 +5,9 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from ..survey import Survey
-from ..metrics import MetricMap
-from ..utils import to_list, align_args
+from ...survey import Survey
+from ...metrics import MetricMap
+from ...utils import to_list, align_args
 
 
 class Statics:
