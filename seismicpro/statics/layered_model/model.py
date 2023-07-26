@@ -505,8 +505,8 @@ class LayeredModel:
     # Statics calculation
 
     @torch.no_grad()
-    def estimate_delays(self, coords, intermediate_datum=None, intermediate_datum_refractor=None, final_datum=None,
-                        replacement_velocity=None):
+    def estimate_statics(self, coords, intermediate_datum=None, intermediate_datum_refractor=None, final_datum=None,
+                         replacement_velocity=None):
         # Interpolate layer elevations and thicknesses at given coords
         coords, is_1d = self.process_coords(coords)
         indices, weights = self.grid.get_interpolation_params(coords[:, :2])
@@ -533,23 +533,23 @@ class LayeredModel:
             intermediate_elevations = torch.tensor(intermediate_datum, dtype=torch.float32, device=self.device)
         intermediate_elevations = torch.broadcast_to(intermediate_elevations, (len(coords),))
 
-        # Calculate delays from sensor locations to intermediate datum
+        # Calculate statics from sensor locations to intermediate datum
         sign = torch.sign(elevations - intermediate_elevations)
-        delays = sign * self._estimate_vertical_traveltimes(elevations, intermediate_elevations,
-                                                            layer_slownesses, layer_elevations)
+        statics = sign * self._estimate_vertical_traveltimes(elevations, intermediate_elevations,
+                                                             layer_slownesses, layer_elevations)
 
-        # Add delays from intermediate to final datum
+        # Add statics from intermediate to final datum
         if final_datum is not None:
             if replacement_velocity is None:
                 raise ValueError
-            delays += 1000 * (intermediate_elevations - final_datum) / replacement_velocity
+            statics += 1000 * (intermediate_elevations - final_datum) / replacement_velocity
 
-        delays = delays.detach().cpu().numpy()
+        statics = statics.detach().cpu().numpy()
         if is_1d:
-            return delays[0]
-        return delays
+            return statics[0]
+        return statics
 
-    def _get_source_delays(self, survey, index_cols, uphole_correction_method, **kwargs):
+    def _get_source_statics(self, survey, index_cols, uphole_correction_method, **kwargs):
         index_cols = to_list(index_cols)
         all_cols_set = set(index_cols + ["SourceX", "SourceY", "SourceSurfaceElevation"])
         if "SourceDepth" in survey.available_headers:
@@ -568,18 +568,18 @@ class LayeredModel:
                           "Calculated statics may be inaccurate.")
 
         source_coords = statics[["SourceX", "SourceY", "SourceSurfaceElevation"]].to_numpy()
-        statics["SurfaceDelay"] = self.estimate_delays(source_coords, **kwargs)
+        statics["SurfaceStatics"] = self.estimate_statics(source_coords, **kwargs)
         if uphole_correction_method == "time":
-            statics["Delay"] = statics["SurfaceDelay"] - statics["SourceUpholeTime"]
+            statics["Statics"] = statics["SurfaceStatics"] - statics["SourceUpholeTime"]
         elif uphole_correction_method == "depth":
             source_elevations = source_coords[:, -1] - statics["SourceDepth"].to_numpy()
             source_coords = np.column_stack([source_coords[:, :2], source_elevations])
-            statics["Delay"] = self.estimate_delays(source_coords, **kwargs)
+            statics["Statics"] = self.estimate_statics(source_coords, **kwargs)
         else:
-            statics["Delay"] = statics["SurfaceDelay"]
+            statics["Statics"] = statics["SurfaceStatics"]
         return statics
 
-    def _get_receiver_delays(self, survey, index_cols, **kwargs):
+    def _get_receiver_statics(self, survey, index_cols, **kwargs):
         index_cols = to_list(index_cols)
         all_cols_set = set(index_cols + ["GroupX", "GroupY", "ReceiverGroupElevation"])
         all_cols = list(all_cols_set)
@@ -593,7 +593,7 @@ class LayeredModel:
             warnings.warn("Some receivers have non-unique locations. Calculated statics may be inaccurate.")
 
         receiver_coords = statics[["GroupX", "GroupY", "ReceiverGroupElevation"]].to_numpy()
-        statics["Delay"] = self.estimate_delays(receiver_coords, **kwargs)
+        statics["Statics"] = self.estimate_statics(receiver_coords, **kwargs)
         return statics
 
     def calculate_statics(self, survey=None, uphole_correction_method="auto", source_id_cols=None,
@@ -623,26 +623,26 @@ class LayeredModel:
                 raise ValueError
             receiver_id_cols = survey_list[0].receiver_id_cols
 
-        estimate_delays_kwargs = {
+        statics_kwargs = {
             "intermediate_datum": intermediate_datum,
             "intermediate_datum_refractor": intermediate_datum_refractor,
             "final_datum": final_datum,
             "replacement_velocity": replacement_velocity,
         }
-        source_delays_list = []
-        receiver_delays_list = []
+        source_statics_list = []
+        receiver_statics_list = []
         for sur, correction_method in zip(survey_list, uphole_correction_method_list):
             correction_method = get_uphole_correction_method(sur, correction_method)
-            source_delays = self._get_source_delays(sur, source_id_cols, correction_method, **estimate_delays_kwargs)
-            source_delays_list.append(source_delays)
+            source_statics = self._get_source_statics(sur, source_id_cols, correction_method, **statics_kwargs)
+            source_statics_list.append(source_statics)
 
-            receiver_delays = self._get_receiver_delays(sur, receiver_id_cols, **estimate_delays_kwargs)
-            receiver_delays_list.append(receiver_delays)
+            receiver_statics = self._get_receiver_statics(sur, receiver_id_cols, **statics_kwargs)
+            receiver_statics_list.append(receiver_statics)
 
         survey = survey_list[0] if is_single_survey else survey_list
-        source_delays = source_delays_list[0] if is_single_survey else source_delays_list
-        receiver_delays = receiver_delays_list[0] if is_single_survey else receiver_delays_list
-        return Statics(survey, source_delays, source_id_cols, receiver_delays, receiver_id_cols, validate=False)
+        source_statics = source_statics_list[0] if is_single_survey else source_statics_list
+        receiver_statics = receiver_statics_list[0] if is_single_survey else receiver_statics_list
+        return Statics(survey, source_statics, source_id_cols, receiver_statics, receiver_id_cols, validate=False)
 
     # Model visualization
 
