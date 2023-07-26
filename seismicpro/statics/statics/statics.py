@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
+from .statics_plot import StaticsPlot
 from ...survey import Survey
 from ...metrics import MetricMap
 from ...utils import to_list, align_args
@@ -124,53 +125,7 @@ class Statics:
 
     # Statics visualization
 
-    def plot(self, by="shot", corrected=True, interactive=False, sort_by=None, center=True):
-        by = by.lower()
-        if by in {"source", "shot"}:
-            statics_map = self.corrected_source_statics_map if corrected else self.source_statics_map
-        elif by in {"receiver", "rec"}:
-            statics_map = self.receiver_statics_map
-        else:
-            raise ValueError("Unknown by")
-
-        if interactive:
-            index_cols = statics_map.index_cols if len(self.survey_list) == 1 else statics_map.index_cols[1:]
-            survey_list = [sur.reindex(index_cols) for sur in self.survey_list]
-
-            def get_gather(index):
-                if len(survey_list) == 1:
-                    part = 0
-                else:
-                    part = index[0]
-                    index = index[1:]
-                survey = survey_list[part]
-                gather = survey.get_gather(index, copy_headers=True)
-                if sort_by is not None:
-                    gather = gather.sort(by=sort_by)
-                return gather
-
-            def plot_gather(ax, coords, index, **kwargs):
-                _ = coords, kwargs
-                gather = get_gather(index)
-                gather.plot(ax=ax, title="Gather without statics corrections applied")
-
-            def plot_gather_statics(ax, coords, index, **kwargs):
-                _ = coords, kwargs
-
-                if self.n_surveys == 1:
-                    source_statics = self.source_statics_list[0]
-                    receiver_statics = self.receiver_statics_list[0]
-                else:
-                    source_statics = self.source_statics_list[index[0]]
-                    receiver_statics = self.receiver_statics_list[index[0]]
-                gather = get_gather(index)
-                gather = self._apply_to_container(gather, source_statics, receiver_statics, statics_header="_Statics")
-                if center:
-                    gather["_Statics"] = gather["_Statics"] - gather["_Statics"].mean()
-                gather = gather.apply_statics("_Statics")
-                gather.plot(ax=ax, title="Gather with statics corrections applied")
-
-            plot_on_click = [plot_gather, plot_gather_statics]
-        else:
-            plot_on_click = None
-        statics_map.plot(interactive=interactive, plot_on_click=plot_on_click)
+    def plot(self, by, center=True, sort_by=None, gather_plot_kwargs=None, **kwargs):
+        statics_plot = StaticsPlot(self, by=by, center=center, sort_by=sort_by, gather_plot_kwargs=gather_plot_kwargs,
+                                   **kwargs)
+        statics_plot.plot()

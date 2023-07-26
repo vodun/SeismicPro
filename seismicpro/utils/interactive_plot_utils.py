@@ -485,6 +485,7 @@ class DropdownViewPlot(InteractivePlot):
         super().__init__(**kwargs)
         self.drop.options = self.title_list
         self.drop.index = 0
+        self.next.disabled = self.n_views == 1
 
         # Define handlers after options are set, otherwise plotting will be triggered
         self.prev.on_click(self.prev_view)
