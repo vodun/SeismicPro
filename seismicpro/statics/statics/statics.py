@@ -124,61 +124,53 @@ class Statics:
 
     # Statics visualization
 
-    # def plot(self, by="shot", corrected=True, interactive=False, sort_by=None, center=True):
-    #     by = by.lower()
-    #     if by in {"source", "shot"}:
-    #         statics_map = self.corrected_source_map if corrected else self.source_map
-    #     elif by in {"receiver", "rec"}:
-    #         statics_map = self.receiver_map
-    #     else:
-    #         raise ValueError("Unknown by")
+    def plot(self, by="shot", corrected=True, interactive=False, sort_by=None, center=True):
+        by = by.lower()
+        if by in {"source", "shot"}:
+            statics_map = self.corrected_source_statics_map if corrected else self.source_statics_map
+        elif by in {"receiver", "rec"}:
+            statics_map = self.receiver_statics_map
+        else:
+            raise ValueError("Unknown by")
 
-    #     if interactive:
-    #         index_cols = statics_map.index_cols if len(self.survey_list) == 1 else statics_map.index_cols[1:]
-    #         survey_list = [sur.reindex(index_cols) for sur in self.survey_list]
+        if interactive:
+            index_cols = statics_map.index_cols if len(self.survey_list) == 1 else statics_map.index_cols[1:]
+            survey_list = [sur.reindex(index_cols) for sur in self.survey_list]
 
-    #         def get_gather(index):
-    #             if len(survey_list) == 1:
-    #                 part = 0
-    #             else:
-    #                 part = index[0]
-    #                 index = index[1:]
-    #             survey = survey_list[part]
-    #             gather = survey.get_gather(index, copy_headers=True)
-    #             if sort_by is not None:
-    #                 gather = gather.sort(by=sort_by)
-    #             return gather
+            def get_gather(index):
+                if len(survey_list) == 1:
+                    part = 0
+                else:
+                    part = index[0]
+                    index = index[1:]
+                survey = survey_list[part]
+                gather = survey.get_gather(index, copy_headers=True)
+                if sort_by is not None:
+                    gather = gather.sort(by=sort_by)
+                return gather
 
-    #         def plot_gather(ax, coords, index, **kwargs):
-    #             _ = coords, kwargs
-    #             gather = get_gather(index)
-    #             gather.plot(ax=ax, title="Gather without statics corrections applied")
+            def plot_gather(ax, coords, index, **kwargs):
+                _ = coords, kwargs
+                gather = get_gather(index)
+                gather.plot(ax=ax, title="Gather without statics corrections applied")
 
-    #         def plot_gather_statics(ax, coords, index, **kwargs):
-    #             _ = coords, kwargs
-    #             gather = get_gather(index)
+            def plot_gather_statics(ax, coords, index, **kwargs):
+                _ = coords, kwargs
 
-    #             source_statics = self.source_statics if len(survey_list) == 1 else self.source_statics.loc[index[0]]
-    #             source_statics = source_statics.copy(deep=False)
-    #             source_statics.rename("_source_delay", inplace=True)
-    #             receiver_statics = self.receiver_statics if len(survey_list) == 1 else self.receiver_statics.loc[index[0]]
-    #             receiver_statics = receiver_statics.copy(deep=False)
-    #             receiver_statics.rename("_receiver_delay", inplace=True)
+                if self.n_surveys == 1:
+                    source_statics = self.source_statics_list[0]
+                    receiver_statics = self.receiver_statics_list[0]
+                else:
+                    source_statics = self.source_statics_list[index[0]]
+                    receiver_statics = self.receiver_statics_list[index[0]]
+                gather = get_gather(index)
+                gather = self._apply_to_container(gather, source_statics, receiver_statics, statics_header="_Statics")
+                if center:
+                    gather["_Statics"] = gather["_Statics"] - gather["_Statics"].mean()
+                gather = gather.apply_statics("_Statics")
+                gather.plot(ax=ax, title="Gather with statics corrections applied")
 
-    #             headers = gather.headers
-    #             headers = headers.join(source_statics, on=source_statics.index.names)
-    #             headers = headers.join(receiver_statics, on=receiver_statics.index.names)
-    #             headers["_statics"] = headers["_source_delay"] + headers["_receiver_delay"]
-    #             if center:
-    #                 headers["_statics"] = headers["_statics"] - headers["_statics"].mean()
-    #             if len(headers) != len(gather.headers):
-    #                 raise ValueError("duplicates after merge")
-    #             gather = gather.copy(ignore="headers")
-    #             gather.headers = headers
-    #             gather = gather.apply_statics("_statics")
-    #             gather.plot(ax=ax, title="Gather with statics corrections applied")
-
-    #         plot_on_click = [plot_gather, plot_gather_statics]
-    #     else:
-    #         plot_on_click = None
-    #     statics_map.plot(interactive=interactive, plot_on_click=plot_on_click)
+            plot_on_click = [plot_gather, plot_gather_statics]
+        else:
+            plot_on_click = None
+        statics_map.plot(interactive=interactive, plot_on_click=plot_on_click)
