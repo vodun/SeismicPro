@@ -43,9 +43,6 @@ def apply_agc(data, window_size=125, use_rms_mode=True):
 
     coefs = np.empty_like(data)
     for i in prange(n_traces):  # pylint: disable=not-an-iterable
-
-        win_amps = np.empty(window_size, dtype=np.float32)
-        win_counts = np.empty(window_size, dtype=np.int32)
         win_sum = np.float64(0)
         win_count = 0
         # Calculate AGC coef for the first window
@@ -53,39 +50,30 @@ def apply_agc(data, window_size=125, use_rms_mode=True):
             amp, non_zero = process_amp(data[i, j], use_rms_mode)
             win_count += non_zero
             win_sum += amp
-            win_amps[j] = amp
-            win_counts[j] = non_zero
 
         coef = win_count / (win_sum + 1e-15)
         if use_rms_mode:
             coef = np.sqrt(coef)
         # Extrapolate first AGC coef for trace indices before start
-        data[i, : start + 1] = coef * data[i, : start + 1]
         coefs[i, : start + 1] = coef
 
         # Move the window by one trace element and recalculate the AGC coef
         for j in range(start + 1, end):
-            # Drop processed amplitude for trace element outside the current window position
-            drop_ix = (j - win_left - 1) % window_size
-            win_count -= win_counts[drop_ix]
-            win_sum -= win_amps[drop_ix]
-
-            # Save processed amplitude from the next trace element
-            next_ix = j + win_right - 1
-            amp, non_zero = process_amp(data[i, next_ix], use_rms_mode)
+            amp, non_zero = process_amp(data[i, j + win_right - 1], use_rms_mode)
             win_count += non_zero
             win_sum += amp
-            win_amps[next_ix % window_size] = amp
-            win_counts[next_ix % window_size] = non_zero
+
+            amp, non_zero = process_amp(data[i, j - win_left - 1], use_rms_mode)
+            win_count -= non_zero
+            win_sum -= amp
 
             coef = win_count / (win_sum + 1e-15)
             if use_rms_mode:
                 coef = np.sqrt(coef)
-            data[i, j] = coef * data[i, j]
             coefs[i, j] = coef
         # Extrapolate last AGC coef for trace indices after end
-        data[i, end:] = coef * data[i, end:]
         coefs[i, end:] = coef
+        data[i] *= coefs[i]
 
     return data, coefs
 
